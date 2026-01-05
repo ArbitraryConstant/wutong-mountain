@@ -13,7 +13,6 @@ const elements = {
     loadButton: document.getElementById('load-button'),
     exportButton: document.getElementById('export-button'),
     journalToggle: document.getElementById('journal-toggle'),
-    audioToggle: document.getElementById('audio-toggle'),
     loading: document.getElementById('loading'),
     narrativeDisplay: document.getElementById('narrative-display'),
     narrativeText: document.getElementById('narrative-text'),
@@ -26,7 +25,8 @@ const elements = {
     stepCountEl: document.getElementById('step-count'),
     dreamCountEl: document.getElementById('dream-count'),
     timeElapsedEl: document.getElementById('time-elapsed'),
-    closeJournal: document.getElementById('close-journal')
+    closeJournal: document.getElementById('close-journal'),
+    heroSection: document.getElementById('hero-section')
 };
 
 // Event Listeners
@@ -40,7 +40,6 @@ elements.saveButton.addEventListener('click', saveGame);
 elements.loadButton.addEventListener('click', showLoadMenu);
 elements.exportButton.addEventListener('click', exportJourney);
 elements.journalToggle.addEventListener('click', toggleJournal);
-elements.audioToggle.addEventListener('click', toggleAudio);
 elements.closeJournal.addEventListener('click', toggleJournal);
 
 // Initialize particles
@@ -69,19 +68,19 @@ async function startGame() {
         hideLoading();
         displayStory(currentStory);
         
+        // Hide hero image
+        elements.heroSection.classList.add('hidden');
+        
         elements.startButton.classList.add('hidden');
         elements.restartButton.classList.remove('hidden');
         elements.saveButton.classList.remove('hidden');
         elements.exportButton.classList.remove('hidden');
         elements.journalToggle.classList.remove('hidden');
-        elements.dreamJournal.classList.remove('hidden');
+        
+        // Keep journal closed by default
+        // elements.dreamJournal.classList.remove('hidden');
         
         updateLoadButtonVisibility();
-        
-        // Start with mountain soundscape
-        if (atmosphericAudio.isEnabled) {
-            atmosphericAudio.playSoundscape('mountain');
-        }
         
     } catch (error) {
         console.error('Error starting game:', error);
@@ -92,6 +91,9 @@ async function startGame() {
 async function makeChoice(choice, index) {
     try {
         showLoading();
+        
+        // Scroll to top immediately when choice is made
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         
         const response = await fetch('/api/continue', {
             method: 'POST',
@@ -129,13 +131,8 @@ async function makeChoice(choice, index) {
         hideLoading();
         displayStory(currentStory);
         
-        // Update soundscape based on state
-        updateSoundscape(currentStory.metadata);
-        
         // Update background color based on state
         updateBackgroundColor(currentStory.metadata);
-        
-        elements.narrativeDisplay.scrollIntoView({ behavior: 'smooth', block: 'start' });
         
     } catch (error) {
         console.error('Error continuing story:', error);
@@ -211,6 +208,7 @@ function updateDreamCount() {
 }
 
 function startTimeTracking() {
+    if (timeInterval) clearInterval(timeInterval);
     timeInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 60000); // minutes
         elements.timeElapsedEl.textContent = elapsed + 'm';
@@ -268,7 +266,7 @@ function exportJourney() {
 
 function showExportMenu() {
     const modal = document.createElement('div');
-    modal.className = 'load-menu'; // Reuse same modal styling
+    modal.className = 'load-menu';
     modal.innerHTML = `
         <div class="load-menu-content">
             <h2>Export Journey</h2>
@@ -303,8 +301,8 @@ function showExportMenu() {
 }
 
 function closeExportMenu() {
-    const modal = document.querySelector('.load-menu');
-    if (modal) modal.remove();
+    const menu = document.querySelector('.load-menu');
+    if (menu) menu.remove();
 }
 
 function exportAsMarkdown() {
@@ -332,15 +330,12 @@ function exportAsMarkdown() {
 }
 
 function exportAsPDF() {
-    // For PDF, we'll create an HTML version and use the browser's print-to-PDF
     const htmlContent = generateHTMLContent();
     
-    // Create a new window with the content
     const printWindow = window.open('', '_blank');
     printWindow.document.write(htmlContent);
     printWindow.document.close();
     
-    // Wait a moment for content to load, then trigger print dialog
     setTimeout(() => {
         printWindow.print();
     }, 500);
@@ -540,43 +535,12 @@ function getDateString() {
     return new Date().toISOString().slice(0, 10);
 }
 
-// ===== AUDIO FUNCTIONS =====
-
-function toggleAudio() {
-    const enabled = atmosphericAudio.toggle();
-    elements.audioToggle.textContent = enabled ? '🔊 Sound: On' : '🔇 Sound: Off';
-    
-    if (enabled && currentStory?.metadata) {
-        updateSoundscape(currentStory.metadata);
-    }
-}
-
-function updateSoundscape(metadata) {
-    if (!atmosphericAudio.isEnabled) return;
-    
-    if (metadata.dreamState === 'dreaming') {
-        // Check if nightmare or regular dream
-        const isNightmare = metadata.atmosphere?.toLowerCase().includes('dark') || 
-                          metadata.atmosphere?.toLowerCase().includes('dystopian') ||
-                          metadata.atmosphere?.toLowerCase().includes('nightmare');
-        
-        atmosphericAudio.transitionTo(isNightmare ? 'nightmare' : 'dream', 2);
-    } else {
-        // Waking state - mountain or city?
-        const isCity = metadata.location?.toLowerCase().includes('city') ||
-                      metadata.location?.toLowerCase().includes('shenzhen');
-        
-        atmosphericAudio.transitionTo(isCity ? 'city' : 'mountain', 2);
-    }
-}
-
 // ===== VISUAL EFFECTS =====
 
 function updateBackgroundColor(metadata) {
     const body = document.body;
     
     if (metadata.dreamState === 'dreaming') {
-        // Dream state - purples and blues
         const isDark = metadata.atmosphere?.toLowerCase().includes('dark') ||
                       metadata.atmosphere?.toLowerCase().includes('nightmare');
         
@@ -586,7 +550,6 @@ function updateBackgroundColor(metadata) {
             body.style.background = 'linear-gradient(to bottom, #0a1a3e 0%, #1e3a5f 50%, #2a4a7f 100%)';
         }
     } else {
-        // Waking state - original gradient
         body.style.background = 'linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%)';
     }
     
@@ -601,20 +564,16 @@ function createMistParticles() {
         const particle = document.createElement('div');
         particle.className = 'mist-particle';
         
-        // Random starting position
         particle.style.left = Math.random() * 100 + '%';
         particle.style.top = Math.random() * 100 + '%';
         
-        // Random size
         const size = Math.random() * 60 + 20;
         particle.style.width = size + 'px';
         particle.style.height = size + 'px';
         
-        // Random animation duration
         const duration = Math.random() * 20 + 30;
         particle.style.animationDuration = duration + 's';
         
-        // Random animation delay
         const delay = Math.random() * 10;
         particle.style.animationDelay = delay + 's';
         
@@ -683,6 +642,8 @@ function showLoadMenu() {
                 ${saveNames.map(name => {
                     const save = saves[name];
                     const date = new Date(save.savedAt).toLocaleString();
+                    // Escape special characters in name for onclick
+                    const escapedName = name.replace(/'/g, "\\'");
                     return `
                         <div class="save-item">
                             <div class="save-info">
@@ -692,8 +653,8 @@ function showLoadMenu() {
                                 <small>Steps: ${save.stepCount || 0} | Dreams: ${save.dreamCount || 0}</small>
                             </div>
                             <div class="save-actions">
-                                <button onclick="loadGame('${name}')" class="load-btn">Load</button>
-                                <button onclick="deleteSave('${name}')" class="delete-btn">Delete</button>
+                                <button onclick="loadGame('${escapedName}')" class="load-btn">Load</button>
+                                <button onclick="deleteSave('${escapedName}')" class="delete-btn">Delete</button>
                             </div>
                         </div>
                     `;
@@ -718,6 +679,9 @@ async function loadGame(saveName) {
     try {
         showLoading();
         closeLoadMenu();
+        
+        // Hide hero image
+        elements.heroSection.classList.add('hidden');
         
         const response = await fetch('/api/restore', {
             method: 'POST',
@@ -765,9 +729,9 @@ async function loadGame(saveName) {
         elements.saveButton.classList.remove('hidden');
         elements.exportButton.classList.remove('hidden');
         elements.journalToggle.classList.remove('hidden');
-        elements.dreamJournal.classList.remove('hidden');
+        // Keep journal closed
+        // elements.dreamJournal.classList.remove('hidden');
         
-        updateSoundscape(currentStory.metadata);
         updateBackgroundColor(currentStory.metadata);
         
         showSaveStatus('Journey loaded: ' + saveName);
@@ -775,6 +739,7 @@ async function loadGame(saveName) {
     } catch (error) {
         console.error('Error loading game:', error);
         alert('Failed to load journey. The path is unclear...');
+        hideLoading();
     }
 }
 

@@ -4,6 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WuTong Mountain | 梧桐山</title>
+    
+    <!-- Open Graph / Social Media Meta Tags -->
+    <meta property="og:title" content="WuTong Mountain | 梧桐山">
+    <meta property="og:description" content="The Dream Doctor Descends. A philosophical journey through utopia and nightmare in 2100 Shenzhen.">
+    <meta property="og:image" content="https://wutongmountain.org/og-image.png">
+    <meta property="og:url" content="https://wutongmountain.org">
+    <meta property="og:type" content="website">
+    
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="WuTong Mountain | 梧桐山">
+    <meta name="twitter:description" content="The Dream Doctor Descends. A philosophical journey through utopia and nightmare in 2100 Shenzhen.">
+    <meta name="twitter:image" content="https://wutongmountain.org/og-image.png">
+    
+    <!-- General Meta Tags -->
+    <meta name="description" content="WuTong Mountain - An AI-powered interactive narrative where you play as Nameless, a dream doctor descending from the mountain to heal the nightmares of a utopian world.">
+    <meta name="keywords" content="interactive fiction, AI narrative, choose your own adventure, philosophy, Daoism, dreams, Shenzhen">
+    
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -24,10 +42,14 @@
                     <button id="load-button" class="control-btn hidden">📖 Load</button>
                     <button id="export-button" class="control-btn hidden">📜 Export</button>
                     <button id="journal-toggle" class="control-btn hidden">📔 Journal</button>
-                    <button id="audio-toggle" class="control-btn">🔊 Sound: Off</button>
                 </div>
 
                 <div id="save-status" class="save-status"></div>
+
+                <!-- Hero Image Section (only visible before starting) -->
+                <div id="hero-section" class="hero-section">
+                    <img src="og-image.png" alt="WuTong Mountain" class="hero-image">
+                </div>
 
                 <main id="story-container">
                     <div id="loading" class="hidden">
@@ -85,7 +107,6 @@
         </aside>
     </div>
 
-    <script src="audio.js"></script>
     <script src="script.js"></script>
 </body>
 </html>
