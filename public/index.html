@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WuTong Mountain | 梧桐山</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Animated background particles -->
+    <div id="mist-particles"></div>
+    
+    <div class="layout">
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <div class="container">
+                <header>
+                    <h1 class="glow-text">WuTong Mountain</h1>
+                    <p class="subtitle">梧桐山 | The Dream Doctor Descends</p>
+                </header>
+
+                <div class="controls">
+                    <button id="save-button" class="control-btn hidden">💾 Save</button>
+                    <button id="load-button" class="control-btn hidden">📖 Load</button>
+                    <button id="export-button" class="control-btn hidden">📜 Export</button>
+                    <button id="journal-toggle" class="control-btn hidden">📔 Journal</button>
+                    <button id="audio-toggle" class="control-btn">🔊 Sound: Off</button>
+                </div>
+
+                <div id="save-status" class="save-status"></div>
+
+                <main id="story-container">
+                    <div id="loading" class="hidden">
+                        <div class="mist-loader"></div>
+                        <p>The mist shifts...</p>
+                    </div>
+
+                    <div id="narrative-display">
+                        <div id="location-info" class="metadata"></div>
+                        <div id="narrative-text"></div>
+                    </div>
+
+                    <div id="choices-container" class="hidden">
+                        <div class="choices-grid"></div>
+                    </div>
+
+                    <button id="start-button" class="start-btn">Begin the Descent</button>
+                    <button id="restart-button" class="restart-btn hidden">Return to the Mountain</button>
+                </main>
+
+                <footer>
+                    <p>A journey without destination | 無為</p>
+                </footer>
+            </div>
+        </div>
+
+        <!-- Dream Journal Sidebar -->
+        <aside id="dream-journal" class="dream-journal hidden">
+            <div class="journal-header">
+                <h3>Dream Journal</h3>
+                <button class="close-journal" id="close-journal">✕</button>
+            </div>
+            
+            <div class="journal-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Steps</span>
+                    <span class="stat-value" id="step-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Dreams</span>
+                    <span class="stat-value" id="dream-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Time</span>
+                    <span class="stat-value" id="time-elapsed">0m</span>
+                </div>
+            </div>
+
+            <div class="journal-content">
+                <h4>Your Path</h4>
+                <div class="journal-path" id="journal-path">
+                    <p class="journal-empty">Your path will be recorded here...</p>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script src="audio.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
