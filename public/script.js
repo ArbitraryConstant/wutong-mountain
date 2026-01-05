@@ -683,14 +683,36 @@ async function loadGame(saveName) {
         // Hide hero image
         elements.heroSection.classList.add('hidden');
         
+        // Extract the actual session data - it might be nested
+        let actualSessionData = save.sessionData;
+        
+        // If sessionData has a sessionData property, use that
+        if (actualSessionData && actualSessionData.sessionData) {
+            actualSessionData = actualSessionData.sessionData;
+        }
+        
+        // If we still don't have the right structure, try to use what we have
+        if (!actualSessionData || !actualSessionData.history) {
+            // Reconstruct session data from what we saved
+            actualSessionData = {
+                history: [],
+                currentState: save.sessionData.currentState || save.sessionData.story || {},
+                choices: save.journalEntries || []
+            };
+        }
+        
         const response = await fetch('/api/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 sessionId: save.sessionId,
-                sessionData: save.sessionData.sessionData || save.sessionData
+                sessionData: actualSessionData
             })
         });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
         
         const data = await response.json();
         
@@ -729,8 +751,6 @@ async function loadGame(saveName) {
         elements.saveButton.classList.remove('hidden');
         elements.exportButton.classList.remove('hidden');
         elements.journalToggle.classList.remove('hidden');
-        // Keep journal closed
-        // elements.dreamJournal.classList.remove('hidden');
         
         updateBackgroundColor(currentStory.metadata);
         
@@ -738,8 +758,12 @@ async function loadGame(saveName) {
         
     } catch (error) {
         console.error('Error loading game:', error);
-        alert('Failed to load journey. The path is unclear...');
+        alert('Failed to load journey. The path is unclear... Error: ' + error.message);
         hideLoading();
+        
+        // Show start button again so user can start fresh
+        elements.startButton.classList.remove('hidden');
+        elements.heroSection.classList.remove('hidden');
     }
 }
 
