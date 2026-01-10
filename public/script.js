@@ -82,11 +82,31 @@ async function loadAutosave() {
         elements.heroSection.classList.add('hidden');
         document.getElementById('load-autosave-button')?.remove();
         
-        // Prepare session data
+        // Extract session data properly
         let sessionData = autosave.sessionData;
+        
+        // If sessionData is wrapped, unwrap it
         if (sessionData && sessionData.sessionData) {
             sessionData = sessionData.sessionData;
         }
+        
+        // Ensure we have the required structure
+        if (!sessionData || typeof sessionData !== 'object') {
+            throw new Error('Invalid session data structure');
+        }
+        
+        // Make sure history exists
+        if (!sessionData.history || !Array.isArray(sessionData.history)) {
+            sessionData.history = [];
+        }
+        
+        // Make sure currentState exists
+        if (!sessionData.currentState) {
+            throw new Error('No current state found in autosave');
+        }
+        
+        console.log('Restoring autosave with sessionId:', autosave.sessionId);
+        console.log('Session data history length:', sessionData.history.length);
         
         const response = await fetch('/api/restore', {
             method: 'POST',
@@ -98,10 +118,15 @@ async function loadAutosave() {
         });
         
         if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Server error: ${response.status}`);
         }
         
         const data = await response.json();
+        
+        if (!data.story) {
+            throw new Error('No story data returned from server');
+        }
         
         sessionId = autosave.sessionId;
         currentStory = data.story;
@@ -146,9 +171,13 @@ async function loadAutosave() {
         
     } catch (error) {
         console.error('Error loading autosave:', error);
-        alert('Failed to load autosave. Starting fresh...');
+        console.error('Error details:', error.message);
+        alert('Failed to load autosave: ' + error.message + '\n\nStarting fresh...');
         clearAutosave();
-        location.reload();
+        document.getElementById('load-autosave-button')?.remove();
+        elements.heroSection.classList.remove('hidden');
+        elements.startButton.classList.remove('hidden');
+        hideLoading();
     }
 }
 
