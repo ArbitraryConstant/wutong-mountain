@@ -54,7 +54,7 @@ checkForAutosave();
 function checkForAutosave() {
     const autosave = localStorage.getItem(AUTOSAVE_KEY);
     if (autosave) {
-        // Show load button with special styling for autosave
+        // Show Continue Journey button
         const loadAutosaveBtn = document.createElement('button');
         loadAutosaveBtn.id = 'load-autosave-button';
         loadAutosaveBtn.className = 'control-btn autosave-btn';
@@ -63,23 +63,37 @@ function checkForAutosave() {
         
         // Insert after start button
         elements.startButton.parentNode.insertBefore(loadAutosaveBtn, elements.startButton.nextSibling);
+        
+        // Also show Load button since autosave exists
+        updateLoadButtonVisibility();
     }
 }
 
 async function loadAutosave() {
     try {
-        const autosave = JSON.parse(localStorage.getItem(AUTOSAVE_KEY));
+        const autosaveStr = localStorage.getItem(AUTOSAVE_KEY);
+        if (!autosaveStr) {
+            throw new Error('No autosave found');
+        }
+        
+        const autosave = JSON.parse(autosaveStr);
         
         showLoading();
         elements.heroSection.classList.add('hidden');
         document.getElementById('load-autosave-button')?.remove();
+        
+        // Prepare session data
+        let sessionData = autosave.sessionData;
+        if (sessionData && sessionData.sessionData) {
+            sessionData = sessionData.sessionData;
+        }
         
         const response = await fetch('/api/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 sessionId: autosave.sessionId,
-                sessionData: autosave.sessionData
+                sessionData: sessionData
             })
         });
         
@@ -156,7 +170,7 @@ async function performAutosave() {
         
         const autosaveData = {
             sessionId,
-            sessionData: sessionData.sessionData || sessionData,
+            sessionData: sessionData,
             journalEntries,
             stepCount,
             dreamCount,
@@ -166,6 +180,9 @@ async function performAutosave() {
         };
         
         localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(autosaveData));
+        
+        // Update Load button visibility
+        updateLoadButtonVisibility();
         
         // Show brief autosave indicator
         const indicator = document.createElement('div');
@@ -403,7 +420,6 @@ function exportJourney() {
         return;
     }
     
-    // Show export format selection modal
     showExportMenu();
 }
 
@@ -937,7 +953,10 @@ function closeLoadMenu() {
 
 function updateLoadButtonVisibility() {
     const saves = getSavedGames();
-    if (Object.keys(saves).length > 0) {
+    const autosave = localStorage.getItem(AUTOSAVE_KEY);
+    
+    // Show load button if there are ANY saves (manual OR autosave)
+    if (Object.keys(saves).length > 0 || autosave) {
         elements.loadButton.classList.remove('hidden');
     } else {
         elements.loadButton.classList.add('hidden');
