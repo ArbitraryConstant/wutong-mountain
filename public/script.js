@@ -138,6 +138,11 @@ async function loadAutosave() {
     }
 }
 
+async function loadAutosaveFromMenu() {
+    closeLoadMenu();
+    await loadAutosave();
+}
+
 function clearAutosave() {
     localStorage.removeItem(AUTOSAVE_KEY);
 }
@@ -764,7 +769,16 @@ function getSavedGames() {
 
 function showLoadMenu() {
     const saves = getSavedGames();
-    const saveNames = Object.keys(saves);
+    const autosave = localStorage.getItem(AUTOSAVE_KEY);
+    let saveNames = Object.keys(saves);
+    
+    // Add autosave to the list if it exists
+    const allSaves = { ...saves };
+    if (autosave) {
+        const autosaveData = JSON.parse(autosave);
+        allSaves['🔄 Autosave (Latest)'] = autosaveData;
+        saveNames = Object.keys(allSaves);
+    }
     
     if (saveNames.length === 0) {
         alert('No saved journeys found.');
@@ -778,11 +792,12 @@ function showLoadMenu() {
             <h2>Saved Journeys</h2>
             <div class="save-list">
                 ${saveNames.map(name => {
-                    const save = saves[name];
+                    const save = allSaves[name];
                     const date = new Date(save.savedAt).toLocaleString();
                     const escapedName = name.replace(/'/g, "\\'");
+                    const isAutosave = name === '🔄 Autosave (Latest)';
                     return `
-                        <div class="save-item">
+                        <div class="save-item ${isAutosave ? 'autosave-item' : ''}">
                             <div class="save-info">
                                 <strong>${name}</strong>
                                 <small>${date}</small>
@@ -790,8 +805,8 @@ function showLoadMenu() {
                                 <small>Steps: ${save.stepCount || 0} | Dreams: ${save.dreamCount || 0}</small>
                             </div>
                             <div class="save-actions">
-                                <button onclick="loadGame('${escapedName}')" class="load-btn">Load</button>
-                                <button onclick="deleteSave('${escapedName}')" class="delete-btn">Delete</button>
+                                <button onclick="${isAutosave ? 'loadAutosaveFromMenu()' : `loadGame('${escapedName}')`}" class="load-btn">Load</button>
+                                ${!isAutosave ? `<button onclick="deleteSave('${escapedName}')" class="delete-btn">Delete</button>` : ''}
                             </div>
                         </div>
                     `;
@@ -941,6 +956,7 @@ function showSaveStatus(message) {
 window.loadGame = loadGame;
 window.deleteSave = deleteSave;
 window.closeLoadMenu = closeLoadMenu;
+window.loadAutosaveFromMenu = loadAutosaveFromMenu;
 window.exportAsMarkdown = exportAsMarkdown;
 window.exportAsPDF = exportAsPDF;
 window.exportAsText = exportAsText;
