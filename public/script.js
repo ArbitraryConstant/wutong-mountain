@@ -6,6 +6,8 @@ let dreamCount = 0;
 let startTime = null;
 let timeInterval = null;
 
+const AUTOSAVE_KEY = 'wutongMountainAutosave';
+
 const elements = {
     startButton: document.getElementById('start-button'),
     restartButton: document.getElementById('restart-button'),
@@ -33,6 +35,7 @@ const elements = {
 elements.startButton.addEventListener('click', startGame);
 elements.restartButton.addEventListener('click', () => {
     if (confirm('Return to the mountain and begin anew? Your current journey will be lost unless saved.')) {
+        clearAutosave();
         location.reload();
     }
 });
@@ -44,6 +47,136 @@ elements.closeJournal.addEventListener('click', toggleJournal);
 
 // Initialize particles
 createMistParticles();
+
+// Check for autosave on page load
+checkForAutosave();
+
+function checkForAutosave() {
+    const autosave = localStorage.getItem(AUTOSAVE_KEY);
+    if (autosave) {
+        // Show load button with special styling for autosave
+        const loadAutosaveBtn = document.createElement('button');
+        loadAutosaveBtn.id = 'load-autosave-button';
+        loadAutosaveBtn.className = 'control-btn autosave-btn';
+        loadAutosaveBtn.innerHTML = '🔄 Continue Journey';
+        loadAutosaveBtn.addEventListener('click', loadAutosave);
+        
+        // Insert after start button
+        elements.startButton.parentNode.insertBefore(loadAutosaveBtn, elements.startButton.nextSibling);
+    }
+}
+
+async function loadAutosave() {
+    try {
+        const autosave = JSON.parse(localStorage.getItem(AUTOSAVE_KEY));
+        
+        showLoading();
+        elements.heroSection.classList.add('hidden');
+        document.getElementById('load-autosave-button')?.remove();
+        
+        const response = await fetch('/api/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: autosave.sessionId,
+                sessionData: autosave.sessionData
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        sessionId = autosave.sessionId;
+        currentStory = data.story;
+        journalEntries = autosave.journalEntries || [];
+        stepCount = autosave.stepCount || 0;
+        dreamCount = autosave.dreamCount || 0;
+        startTime = autosave.startTime || Date.now();
+        
+        startTimeTracking();
+        updateStepCount();
+        updateDreamCount();
+        
+        // Rebuild journal display
+        elements.journalPath.innerHTML = '';
+        journalEntries.forEach(entry => {
+            const dreamIcon = entry.dreamState === 'dreaming' ? '💭' : '👁️';
+            const entryEl = document.createElement('div');
+            entryEl.className = 'journal-entry';
+            entryEl.innerHTML = `
+                <div class="journal-entry-header">
+                    <span class="journal-step">${dreamIcon} Step ${entry.step}</span>
+                    <span class="journal-location">${entry.location}</span>
+                </div>
+                <div class="journal-choice">"${entry.choice}"</div>
+            `;
+            elements.journalPath.appendChild(entryEl);
+        });
+        
+        hideLoading();
+        displayStory(currentStory);
+        
+        elements.startButton.classList.add('hidden');
+        elements.restartButton.classList.remove('hidden');
+        elements.saveButton.classList.remove('hidden');
+        elements.exportButton.classList.remove('hidden');
+        elements.journalToggle.classList.remove('hidden');
+        
+        updateLoadButtonVisibility();
+        updateBackgroundColor(currentStory.metadata);
+        
+        showSaveStatus('Journey continued from autosave');
+        
+    } catch (error) {
+        console.error('Error loading autosave:', error);
+        alert('Failed to load autosave. Starting fresh...');
+        clearAutosave();
+        location.reload();
+    }
+}
+
+function clearAutosave() {
+    localStorage.removeItem(AUTOSAVE_KEY);
+}
+
+async function performAutosave() {
+    if (!sessionId) return;
+    
+    try {
+        const response = await fetch(`/api/session/${sessionId}`);
+        const sessionData = await response.json();
+        
+        const autosaveData = {
+            sessionId,
+            sessionData: sessionData.sessionData || sessionData,
+            journalEntries,
+            stepCount,
+            dreamCount,
+            startTime,
+            savedAt: new Date().toISOString(),
+            location: currentStory.metadata?.location || 'Unknown'
+        };
+        
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(autosaveData));
+        
+        // Show brief autosave indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'autosave-indicator';
+        indicator.textContent = '💾 Autosaved';
+        document.body.appendChild(indicator);
+        
+        setTimeout(() => {
+            indicator.classList.add('fade-out');
+            setTimeout(() => indicator.remove(), 500);
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Autosave failed:', error);
+    }
+}
 
 async function startGame() {
     try {
@@ -65,20 +198,22 @@ async function startGame() {
         startTime = Date.now();
         startTimeTracking();
         
+        // Clear old autosave and create new one
+        clearAutosave();
+        await performAutosave();
+        
         hideLoading();
         displayStory(currentStory);
         
-        // Hide hero image
+        // Hide hero image and autosave button
         elements.heroSection.classList.add('hidden');
+        document.getElementById('load-autosave-button')?.remove();
         
         elements.startButton.classList.add('hidden');
         elements.restartButton.classList.remove('hidden');
         elements.saveButton.classList.remove('hidden');
         elements.exportButton.classList.remove('hidden');
         elements.journalToggle.classList.remove('hidden');
-        
-        // Keep journal closed by default
-        // elements.dreamJournal.classList.remove('hidden');
         
         updateLoadButtonVisibility();
         
@@ -127,6 +262,9 @@ async function makeChoice(choice, index) {
         
         updateStepCount();
         updateJournalPath();
+        
+        // Autosave after each choice
+        await performAutosave();
         
         hideLoading();
         displayStory(currentStory);
@@ -642,7 +780,6 @@ function showLoadMenu() {
                 ${saveNames.map(name => {
                     const save = saves[name];
                     const date = new Date(save.savedAt).toLocaleString();
-                    // Escape special characters in name for onclick
                     const escapedName = name.replace(/'/g, "\\'");
                     return `
                         <div class="save-item">
@@ -680,20 +817,16 @@ async function loadGame(saveName) {
         showLoading();
         closeLoadMenu();
         
-        // Hide hero image
         elements.heroSection.classList.add('hidden');
+        document.getElementById('load-autosave-button')?.remove();
         
-        // Extract the actual session data - it might be nested
         let actualSessionData = save.sessionData;
         
-        // If sessionData has a sessionData property, use that
         if (actualSessionData && actualSessionData.sessionData) {
             actualSessionData = actualSessionData.sessionData;
         }
         
-        // If we still don't have the right structure, try to use what we have
         if (!actualSessionData || !actualSessionData.history) {
-            // Reconstruct session data from what we saved
             actualSessionData = {
                 history: [],
                 currentState: save.sessionData.currentState || save.sessionData.story || {},
@@ -754,6 +887,9 @@ async function loadGame(saveName) {
         
         updateBackgroundColor(currentStory.metadata);
         
+        // Update autosave with loaded game
+        await performAutosave();
+        
         showSaveStatus('Journey loaded: ' + saveName);
         
     } catch (error) {
@@ -761,7 +897,6 @@ async function loadGame(saveName) {
         alert('Failed to load journey. The path is unclear... Error: ' + error.message);
         hideLoading();
         
-        // Show start button again so user can start fresh
         elements.startButton.classList.remove('hidden');
         elements.heroSection.classList.remove('hidden');
     }
