@@ -133,7 +133,7 @@ async function loadAutosave() {
         });
         
         hideLoading();
-        displayStory(currentStory);
+        displayStoryInstant(currentStory);
         
         elements.startButton.classList.add('hidden');
         elements.restartButton.classList.remove('hidden');
@@ -159,7 +159,114 @@ async function loadAutosave() {
 
 async function loadAutosaveFromMenu() {
     closeLoadMenu();
+    
+    // Stop any ongoing typewriter animation
+    elements.narrativeText.textContent = '';
+    
     await loadAutosave();
+}
+
+async function loadGame(saveName) {
+    const saves = getSavedGames();
+    const save = saves[saveName];
+    
+    if (!save) {
+        alert('Save not found.');
+        return;
+    }
+    
+    try {
+        // Stop any ongoing typewriter animation
+        elements.narrativeText.textContent = '';
+        
+        showLoading();
+        closeLoadMenu();
+        
+        elements.heroSection.classList.add('hidden');
+        document.getElementById('load-autosave-button')?.remove();
+        
+        let actualSessionData = save.sessionData;
+        
+        if (actualSessionData && actualSessionData.sessionData) {
+            actualSessionData = actualSessionData.sessionData;
+        }
+        
+        if (!actualSessionData || !actualSessionData.history) {
+            actualSessionData = {
+                history: [],
+                currentState: save.sessionData.currentState || save.sessionData.story || {},
+                choices: save.journalEntries || []
+            };
+        }
+        
+        const response = await fetch('/api/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sessionId: save.sessionId,
+                sessionData: actualSessionData
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        sessionId = save.sessionId;
+        currentStory = data.story;
+        journalEntries = save.journalEntries || [];
+        stepCount = save.stepCount || 0;
+        dreamCount = save.dreamCount || 0;
+        startTime = save.startTime || Date.now();
+        
+        startTimeTracking();
+        updateStepCount();
+        updateDreamCount();
+        
+        // Rebuild journal display
+        elements.journalPath.innerHTML = '';
+        journalEntries.forEach(entry => {
+            const dreamIcon = entry.dreamState === 'dreaming' ? '💭' : '👁️';
+            const entryEl = document.createElement('div');
+            entryEl.className = 'journal-entry';
+            entryEl.innerHTML = `
+                <div class="journal-entry-header">
+                    <span class="journal-step">${dreamIcon} Step ${entry.step}</span>
+                    <span class="journal-location">${entry.location}</span>
+                </div>
+                <div class="journal-choice">"${entry.choice}"</div>
+            `;
+            elements.journalPath.appendChild(entryEl);
+        });
+        
+        hideLoading();
+        
+        // Display without typewriter animation when loading
+        displayStoryInstant(currentStory);
+        
+        elements.startButton.classList.add('hidden');
+        elements.restartButton.classList.remove('hidden');
+        elements.saveButton.classList.remove('hidden');
+        elements.exportButton.classList.remove('hidden');
+        elements.journalToggle.classList.remove('hidden');
+        
+        updateBackgroundColor(currentStory.metadata);
+        
+        // Update autosave with loaded game
+        await performAutosave();
+        
+        showSaveStatus('Journey loaded: ' + saveName);
+        
+    } catch (error) {
+        console.error('Error loading game:', error);
+        alert('Failed to load journey. The path is unclear... Error: ' + error.message);
+        hideLoading();
+        
+        elements.startButton.classList.remove('hidden');
+        elements.heroSection.classList.remove('hidden');
+    }
 }
 
 function clearAutosave() {
@@ -331,6 +438,21 @@ function displayStory(story) {
     typeWriter(story.narrative, elements.narrativeText, () => {
         displayChoices(story.choices);
     });
+}
+
+function displayStoryInstant(story) {
+    if (story.metadata) {
+        const dreamIcon = story.metadata.dreamState === 'dreaming' ? '💭' : '👁️';
+        elements.locationInfo.innerHTML = `
+            ${dreamIcon} <strong>Location:</strong> ${story.metadata.location} | 
+            <strong>State:</strong> ${story.metadata.dreamState} | 
+            <strong>Atmosphere:</strong> ${story.metadata.atmosphere}
+        `;
+    }
+    
+    // Display text instantly without typewriter effect
+    elements.narrativeText.textContent = story.narrative;
+    displayChoices(story.choices);
 }
 
 function displayChoices(choices) {
