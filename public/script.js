@@ -78,42 +78,23 @@ async function loadAutosave() {
         
         const autosave = JSON.parse(autosaveStr);
         
+        console.log('Loading autosave:', autosave);
+        
         showLoading();
         elements.heroSection.classList.add('hidden');
         document.getElementById('load-autosave-button')?.remove();
         
-        // Extract session data properly
-        let sessionData = autosave.sessionData;
-        
-        // If sessionData is wrapped, unwrap it
-        if (sessionData && sessionData.sessionData) {
-            sessionData = sessionData.sessionData;
+        // Validate the autosave structure
+        if (!autosave.sessionData || !autosave.sessionData.currentState) {
+            throw new Error('Autosave is missing required data');
         }
-        
-        // Ensure we have the required structure
-        if (!sessionData || typeof sessionData !== 'object') {
-            throw new Error('Invalid session data structure');
-        }
-        
-        // Make sure history exists
-        if (!sessionData.history || !Array.isArray(sessionData.history)) {
-            sessionData.history = [];
-        }
-        
-        // Make sure currentState exists
-        if (!sessionData.currentState) {
-            throw new Error('No current state found in autosave');
-        }
-        
-        console.log('Restoring autosave with sessionId:', autosave.sessionId);
-        console.log('Session data history length:', sessionData.history.length);
         
         const response = await fetch('/api/restore', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 sessionId: autosave.sessionId,
-                sessionData: sessionData
+                sessionData: autosave.sessionData
             })
         });
         
@@ -123,10 +104,6 @@ async function loadAutosave() {
         }
         
         const data = await response.json();
-        
-        if (!data.story) {
-            throw new Error('No story data returned from server');
-        }
         
         sessionId = autosave.sessionId;
         currentStory = data.story;
@@ -171,8 +148,7 @@ async function loadAutosave() {
         
     } catch (error) {
         console.error('Error loading autosave:', error);
-        console.error('Error details:', error.message);
-        alert('Failed to load autosave: ' + error.message + '\n\nStarting fresh...');
+        alert('Failed to load autosave: ' + error.message);
         clearAutosave();
         document.getElementById('load-autosave-button')?.remove();
         elements.heroSection.classList.remove('hidden');
@@ -191,15 +167,24 @@ function clearAutosave() {
 }
 
 async function performAutosave() {
-    if (!sessionId) return;
+    if (!sessionId || !currentStory) return;
     
     try {
         const response = await fetch(`/api/session/${sessionId}`);
+        
+        if (!response.ok) {
+            throw new Error(`Failed to fetch session: ${response.status}`);
+        }
+        
         const sessionData = await response.json();
         
+        // Build the autosave with the correct structure
         const autosaveData = {
             sessionId,
-            sessionData: sessionData,
+            sessionData: {
+                history: sessionData.sessionData?.history || [],
+                currentState: currentStory  // Use the current story as currentState
+            },
             journalEntries,
             stepCount,
             dreamCount,
@@ -226,6 +211,8 @@ async function performAutosave() {
         
     } catch (error) {
         console.error('Autosave failed:', error);
+        console.error('SessionId:', sessionId);
+        console.error('CurrentStory:', currentStory);
     }
 }
 
@@ -814,16 +801,21 @@ function getSavedGames() {
 
 function showLoadMenu() {
     const saves = getSavedGames();
-    const autosave = localStorage.getItem(AUTOSAVE_KEY);
-    let saveNames = Object.keys(saves);
+    const autosaveStr = localStorage.getItem(AUTOSAVE_KEY);
     
-    // Add autosave to the list if it exists
+    // Build complete list of saves
     const allSaves = { ...saves };
-    if (autosave) {
-        const autosaveData = JSON.parse(autosave);
-        allSaves['🔄 Autosave (Latest)'] = autosaveData;
-        saveNames = Object.keys(allSaves);
+    
+    if (autosaveStr) {
+        try {
+            const autosaveData = JSON.parse(autosaveStr);
+            allSaves['🔄 Autosave (Latest)'] = autosaveData;
+        } catch (e) {
+            console.error('Failed to parse autosave:', e);
+        }
     }
+    
+    const saveNames = Object.keys(allSaves);
     
     if (saveNames.length === 0) {
         alert('No saved journeys found.');
