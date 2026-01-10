@@ -133,7 +133,7 @@ async function loadAutosave() {
         });
         
         hideLoading();
-        displayStoryInstant(currentStory);
+        displayStory(currentStory);
         
         elements.startButton.classList.add('hidden');
         elements.restartButton.classList.remove('hidden');
@@ -244,7 +244,7 @@ async function loadGame(saveName) {
         hideLoading();
         
         // Display without typewriter animation when loading
-        displayStoryInstant(currentStory);
+        displayStory(currentStory);
         
         elements.startButton.classList.add('hidden');
         elements.restartButton.classList.remove('hidden');
@@ -434,26 +434,11 @@ function displayStory(story) {
         `;
     }
     
-    elements.narrativeText.textContent = '';
-    typeWriter(story.narrative, elements.narrativeText, () => {
-        displayChoices(story.choices);
-    });
-}
-
-function displayStoryInstant(story) {
-    if (story.metadata) {
-        const dreamIcon = story.metadata.dreamState === 'dreaming' ? '💭' : '👁️';
-        elements.locationInfo.innerHTML = `
-            ${dreamIcon} <strong>Location:</strong> ${story.metadata.location} | 
-            <strong>State:</strong> ${story.metadata.dreamState} | 
-            <strong>Atmosphere:</strong> ${story.metadata.atmosphere}
-        `;
-    }
-    
-    // Display text instantly without typewriter effect
+    // Display text instantly
     elements.narrativeText.textContent = story.narrative;
     displayChoices(story.choices);
 }
+
 
 function displayChoices(choices) {
     elements.choicesGrid.innerHTML = '';
@@ -467,23 +452,6 @@ function displayChoices(choices) {
     });
     
     elements.choicesContainer.classList.remove('hidden');
-}
-
-function typeWriter(text, element, callback, speed = 15) {
-    let i = 0;
-    element.textContent = '';
-    
-    function type() {
-        if (i < text.length) {
-            element.textContent += text.charAt(i);
-            i++;
-            setTimeout(type, speed);
-        } else if (callback) {
-            callback();
-        }
-    }
-    
-    type();
 }
 
 function showLoading() {
