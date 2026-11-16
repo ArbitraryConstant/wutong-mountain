@@ -1,144 +1,190 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
-const cors = require('cors');
-const { SYSTEM_PROMPT, createInitialStory } = require('./src/storyEngine');
+const { SYSTEM_PROMPT, OPENING_NARRATIVE } = require('./src/storyEngine');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// Store conversation history in memory (in production, use a database)
-const conversations = new Map();
-
-app.post('/api/start', (req, res) => {
-  const sessionId = Date.now().toString();
-  const initialStory = createInitialStory();
-  
-  conversations.set(sessionId, {
-    history: [],
-    currentState: initialStory,
-    choices: [],
-    timestamp: new Date().toISOString()
-  });
-  
-  res.json({
-    sessionId,
-    story: initialStory
-  });
+const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-app.post('/api/continue', async (req, res) => {
-  try {
-    const { sessionId, choice, choiceIndex } = req.body;
-    
-    if (!conversations.has(sessionId)) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    
-    const session = conversations.get(sessionId);
-    
-    // Build conversation history for Claude
-    const messages = session.history.concat([
-      {
-        role: 'user',
-        content: `The player chose: "${choice}"\n\nGenerate the next story segment with 4 new choices. Return ONLY valid JSON matching the specified format.`
-      }
-    ]);
-    
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      system: SYSTEM_PROMPT,
-      messages: messages
-    });
-    
-    const content = response.content[0].text;
-    
-    // Parse Claude's JSON response
-    let storyData;
+// Store active sessions in memory
+const sessions = new Map();
+
+// Start new game
+app.post('/api/start', async (req, res) => {
     try {
-      storyData = JSON.parse(content);
-    } catch (parseError) {
-      // If Claude didn't return pure JSON, try to extract it
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        storyData = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('Could not parse story data');
-      }
+        const sessionId = Date.now().toString();
+        
+        const response = await anthropic.messages.create({
+            model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+            max_tokens: 2000,
+            system: SYSTEM_PROMPT,
+            messages: [
+                {
+                    role: 'user',
+                    content: 'Begin the story with the opening narrative and provide the first set of choices.'
+                }
+            ]
+        });
+
+        const content = response.content[0].text;
+        
+        let story;
+        try {
+            const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/({[\s\S]*})/);
+            if (jsonMatch) {
+                story = JSON.parse(jsonMatch[1]);
+            } else {
+                story = JSON.parse(content);
+            }
+        } catch (parseError) {
+            console.error('Parse error:', parseError);
+            story = {
+                narrative: OPENING_NARRATIVE,
+                choices: [
+                    "Consult the bone pattern first, reading the dreamer's deeper truth",
+                    "Descend immediately to the glass tower, speed over preparation",
+                    "Meditate at the cave mouth, centering yourself before action",
+                    "Ask the mountain's ancient spirits for guidance"
+                ],
+                metadata: {
+                    location: "WuTong Mountain Cave",
+                    dreamState: "waking",
+                    atmosphere: "contemplative dawn"
+                }
+            };
+        }
+
+        const conversationHistory = [
+            {
+                role: 'user',
+                content: 'Begin the story with the opening narrative and provide the first set of choices.'
+            },
+            {
+                role: 'assistant',
+                content: content
+            }
+        ];
+
+        sessions.set(sessionId, {
+            history: conversationHistory,
+            currentState: story
+        });
+
+        res.json({ sessionId, story });
+    } catch (error) {
+        console.error('Error starting game:', error);
+        res.status(500).json({ error: 'Failed to start game' });
     }
-    
-    // Update conversation history
-    session.history.push(
-      {
-        role: 'user',
-        content: `Player chose: "${choice}"`
-      },
-      {
-        role: 'assistant',
-        content: content
-      }
-    );
-    
-    // Track choices made
-    session.choices.push({
-      choice,
-      choiceIndex,
-      timestamp: new Date().toISOString()
-    });
-    
-    session.currentState = storyData;
-    session.timestamp = new Date().toISOString();
-    
-    res.json({ story: storyData });
-    
-  } catch (error) {
-    console.error('Error generating story:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate story',
-      details: error.message 
-    });
-  }
 });
 
-// New endpoint: Get session state for loading
+// Continue story
+app.post('/api/continue', async (req, res) => {
+    try {
+        const { sessionId, choice, choiceIndex } = req.body;
+        
+        const session = sessions.get(sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        const userMessage = {
+            role: 'user',
+            content: `The player chose: "${choice}" (option ${choiceIndex + 1}). Continue the story based on this choice.`
+        };
+
+        session.history.push(userMessage);
+
+        const response = await anthropic.messages.create({
+            model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
+            max_tokens: 2000,
+            system: SYSTEM_PROMPT,
+            messages: session.history
+        });
+
+        const content = response.content[0].text;
+        
+        let story;
+        try {
+            const jsonMatch = content.match(/```json\n([\s\S]*?)\n```/) || content.match(/({[\s\S]*})/);
+            if (jsonMatch) {
+                story = JSON.parse(jsonMatch[1]);
+            } else {
+                story = JSON.parse(content);
+            }
+        } catch (parseError) {
+            console.error('Parse error on continue:', parseError);
+            console.error('Content received:', content);
+            return res.status(500).json({ error: 'Failed to parse story response' });
+        }
+
+        const assistantMessage = {
+            role: 'assistant',
+            content: content
+        };
+
+        session.history.push(assistantMessage);
+        session.currentState = story;
+
+        res.json({ story });
+    } catch (error) {
+        console.error('Error continuing story:', error);
+        res.status(500).json({ error: 'Failed to continue story' });
+    }
+});
+
+// Get session data
 app.get('/api/session/:sessionId', (req, res) => {
-  const { sessionId } = req.params;
-  
-  if (!conversations.has(sessionId)) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-  
-  const session = conversations.get(sessionId);
-  res.json({
-    sessionId,
-    story: session.currentState,
-    choiceHistory: session.choices,
-    timestamp: session.timestamp
-  });
+    const { sessionId } = req.params;
+    const session = sessions.get(sessionId);
+    
+    if (!session) {
+        return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({ 
+        sessionData: {
+            history: session.history,
+            currentState: session.currentState
+        }
+    });
 });
 
-// New endpoint: Restore session from saved data
-app.post('/api/restore', (req, res) => {
-  const { sessionId, sessionData } = req.body;
-  
-  // Restore the session to memory
-  conversations.set(sessionId, sessionData);
-  
-  res.json({
-    success: true,
-    story: sessionData.currentState
-  });
+// Restore session
+app.post('/api/restore', async (req, res) => {
+    try {
+        const { sessionId, sessionData } = req.body;
+        
+        if (!sessionData) {
+            return res.status(400).json({ error: 'No session data provided' });
+        }
+
+        // Reconstruct the session
+        const history = sessionData.history || [];
+        const currentState = sessionData.currentState || {};
+
+        // Store the restored session
+        sessions.set(sessionId, {
+            history: history,
+            currentState: currentState
+        });
+
+        res.json({ 
+            story: currentState,
+            message: 'Session restored successfully'
+        });
+    } catch (error) {
+        console.error('Error restoring session:', error);
+        res.status(500).json({ error: 'Failed to restore session' });
+    }
 });
 
 app.listen(port, () => {
-  console.log(`WuTong Mountain server listening at http://localhost:${port}`);
+    console.log(`WuTong Mountain server running on port ${port}`);
 });
