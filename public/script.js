@@ -332,10 +332,10 @@ async function startGame() {
             headers: { 'Content-Type': 'application/json' }
         });
         
-        const data = await response.json();
+        const data = await readStoryResponse(response);
         sessionId = data.sessionId;
         currentStory = data.story;
-        
+
         // Initialize journey tracking
         journalEntries = [];
         stepCount = 0;
@@ -364,8 +364,36 @@ async function startGame() {
         
     } catch (error) {
         console.error('Error starting game:', error);
-        alert('Failed to start the journey. Please refresh and try again.');
+        hideLoading();
+        alert(`Failed to start the journey. ${error.userMessage || 'Please refresh and try again.'}`);
     }
+}
+
+// Read a story reply from the server. Throws (with a message that is safe to
+// show the player in error.userMessage) if the server reported an error or
+// sent back something that isn't a usable story.
+async function readStoryResponse(response) {
+    let data = null;
+    try {
+        data = await response.json();
+    } catch (e) {
+        // Not JSON (e.g. an HTML error page from the host)
+    }
+
+    if (!response.ok) {
+        const error = new Error(`Server returned ${response.status}`);
+        error.userMessage = data?.error || `The server returned an error (${response.status}).`;
+        throw error;
+    }
+
+    const story = data?.story;
+    if (!story || typeof story.narrative !== 'string' || !Array.isArray(story.choices)) {
+        const error = new Error('Server response did not contain a valid story');
+        error.userMessage = 'The server sent back an incomplete story.';
+        throw error;
+    }
+
+    return data;
 }
 
 async function makeChoice(choice, index) {
@@ -385,9 +413,11 @@ async function makeChoice(choice, index) {
             })
         });
         
-        const data = await response.json();
+        // Throws if the server failed, so nothing below (journal, step count,
+        // autosave) runs for a choice that didn't go through.
+        const data = await readStoryResponse(response);
         currentStory = data.story;
-        
+
         // Track this choice in journal
         stepCount++;
         journalEntries.push({
@@ -420,7 +450,11 @@ async function makeChoice(choice, index) {
     } catch (error) {
         console.error('Error continuing story:', error);
         hideLoading();
-        alert('The mist obscures the path. Please try again.');
+        // Bring the current choices back so the player can try again
+        if (currentStory?.choices?.length) {
+            elements.choicesContainer.classList.remove('hidden');
+        }
+        alert(`The mist obscures the path. ${error.userMessage || 'Please try again.'}`);
     }
 }
 

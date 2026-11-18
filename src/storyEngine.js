@@ -71,5 +71,6 @@ function createInitialStory() {
 
 module.exports = {
   SYSTEM_PROMPT,
+  OPENING_NARRATIVE,
   createInitialStory
 };
