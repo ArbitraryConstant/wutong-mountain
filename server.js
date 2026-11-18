@@ -15,15 +15,20 @@ const MAX_TOKENS = 16000;
 
 const START_PROMPT = 'Begin the story with the opening narrative and provide the first set of choices.';
 
-app.use(express.json({ limit: '10mb' }));
+// Limits on what the browser may send as "the journey so far".
+const MAX_TURNS = 2000;
+const MAX_NARRATIVE_CHARS = 20000;
+const MAX_CHOICE_CHARS = 1000;
+
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static('public'));
 
 const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-// Store active sessions in memory
-const sessions = new Map();
+// The server keeps no game state. The browser holds the whole journey and
+// sends it with each choice, so restarts and redeploys cannot lose a game.
 
 // The shape every story response must have. Sent to the API so the model's
 // reply is guaranteed to be JSON in this structure.
@@ -80,15 +85,20 @@ function extractJson(text) {
 
 // Check the parsed story and tidy it into exactly the shape the frontend
 // expects. Returns null if it is unusable.
-function normalizeStory(raw) {
+//
+// A freshly generated story must have exactly 4 choices. Earlier stories sent
+// back by the browser (requireFourChoices = false) only need a narrative,
+// because saves converted from the old format may lack their choice lists.
+function normalizeStory(raw, requireFourChoices = true) {
     if (!raw || typeof raw.narrative !== 'string' || !raw.narrative.trim()) return null;
+    if (raw.narrative.length > MAX_NARRATIVE_CHARS) return null;
     if (!Array.isArray(raw.choices)) return null;
 
     const choices = raw.choices
-        .filter(c => typeof c === 'string' && c.trim())
+        .filter(c => typeof c === 'string' && c.trim() && c.length <= MAX_CHOICE_CHARS)
         .map(c => c.trim())
         .slice(0, 4);
-    if (choices.length !== 4) return null;
+    if (requireFourChoices && choices.length !== 4) return null;
 
     const meta = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
     const text = (value, fallback) =>
@@ -174,109 +184,104 @@ function sendError(res, error, where) {
     return res.status(500).json({ error: 'Something went wrong on the server. Please try again.' });
 }
 
+// Rebuild the conversation for Claude from the journey the browser sent:
+// the opening story plus each { choice, story } turn since. Throws a
+// StoryError (400) if the data is not a well-formed journey.
+function buildMessages(opening, turns) {
+    const bad = () => new StoryError('The saved journey could not be read. Please reload the page or load a save.', 400);
+
+    const firstStory = normalizeStory(opening, false);
+    if (!firstStory || !Array.isArray(turns) || turns.length > MAX_TURNS) throw bad();
+
+    const messages = [
+        { role: 'user', content: START_PROMPT },
+        { role: 'assistant', content: JSON.stringify(firstStory) }
+    ];
+
+    for (const turn of turns) {
+        const story = normalizeStory(turn && turn.story, false);
+        if (!story || !validChoice(turn.choice)) throw bad();
+        messages.push(
+            { role: 'user', content: choiceMessage(turn.choice, turn.choiceIndex) },
+            { role: 'assistant', content: JSON.stringify(story) }
+        );
+    }
+
+    return messages;
+}
+
+function validChoice(choice) {
+    return typeof choice === 'string' && choice.trim() !== '' && choice.length <= MAX_CHOICE_CHARS;
+}
+
+function choiceMessage(choice, choiceIndex) {
+    const optionNumber = Number.isInteger(choiceIndex) && choiceIndex >= 0 && choiceIndex < 4
+        ? ` (option ${choiceIndex + 1})`
+        : '';
+    return `The player chose: "${choice.trim()}"${optionNumber}. Continue the story based on this choice.`;
+}
+
 // Start new game
 app.post('/api/start', async (req, res) => {
     try {
-        const sessionId = Date.now().toString();
-        const history = [{ role: 'user', content: START_PROMPT }];
-
-        let result;
+        let story;
         try {
-            result = await generateStory(history);
+            ({ story } = await generateStory([{ role: 'user', content: START_PROMPT }]));
         } catch (error) {
             // If Claude answered but the answer was unusable, fall back to the
             // built-in opening so the game can still begin. Real API failures
             // (bad key, bad model, outage) are reported instead.
             if (!(error instanceof StoryError)) throw error;
             console.error('Using built-in opening narrative as fallback.');
-            result = { story: OPENING_NARRATIVE, text: JSON.stringify(OPENING_NARRATIVE) };
+            story = OPENING_NARRATIVE;
         }
 
-        history.push({ role: 'assistant', content: result.text });
-        sessions.set(sessionId, { history, currentState: result.story });
-
-        res.json({ sessionId, story: result.story });
+        res.json({ story });
     } catch (error) {
         sendError(res, error, 'Error starting game');
     }
 });
 
-// Continue story
+// Continue story. The browser sends the journey so far and the new choice.
 app.post('/api/continue', async (req, res) => {
     try {
-        const { sessionId, choice, choiceIndex } = req.body || {};
+        const { opening, turns, choice, choiceIndex } = req.body || {};
 
-        const session = sessions.get(sessionId);
-        if (!session) {
-            return res.status(404).json({ error: 'Session not found. Your journey may need to be reloaded from a save.' });
+        if (!opening) {
+            // A page loaded before the save system was rebuilt sends the old
+            // request format. Its autosave is converted when the page reloads.
+            return res.status(400).json({ error: 'The game has been updated. Please refresh the page, then choose Continue Journey.' });
         }
-        if (typeof choice !== 'string' || !choice.trim()) {
+        if (!validChoice(choice)) {
             return res.status(400).json({ error: 'No choice was provided.' });
         }
 
-        const optionNumber = Number.isInteger(choiceIndex) ? ` (option ${choiceIndex + 1})` : '';
-        const userMessage = {
-            role: 'user',
-            content: `The player chose: "${choice}"${optionNumber}. Continue the story based on this choice.`
-        };
+        const messages = buildMessages(opening, turns || []);
+        messages.push({ role: 'user', content: choiceMessage(choice, choiceIndex) });
 
-        // Only record the turn in the session once it has succeeded, so a
-        // failed attempt can simply be retried.
-        const { story, text } = await generateStory([...session.history, userMessage]);
-
-        session.history.push(userMessage, { role: 'assistant', content: text });
-        session.currentState = story;
-
+        const { story } = await generateStory(messages);
         res.json({ story });
     } catch (error) {
         sendError(res, error, 'Error continuing story');
     }
 });
 
-// Get session data
-app.get('/api/session/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
-    const session = sessions.get(sessionId);
-
-    if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
-    }
-
-    res.json({
-        sessionData: {
-            history: session.history,
-            currentState: session.currentState
-        }
-    });
+// Compatibility only: pages loaded before the save system was rebuilt call
+// this when continuing a journey, and delete their autosave if it fails.
+// Answering keeps that autosave safe until the page is refreshed.
+app.post('/api/restore', (req, res) => {
+    const sessionData = (req.body && req.body.sessionData) || {};
+    res.json({ story: sessionData.currentState || {}, message: 'Session restored successfully' });
 });
 
-// Restore session
-app.post('/api/restore', async (req, res) => {
-    try {
-        const { sessionId, sessionData } = req.body;
-
-        if (!sessionData) {
-            return res.status(400).json({ error: 'No session data provided' });
-        }
-
-        // Reconstruct the session
-        const history = sessionData.history || [];
-        const currentState = sessionData.currentState || {};
-
-        // Store the restored session
-        sessions.set(sessionId, {
-            history: history,
-            currentState: currentState
-        });
-
-        res.json({
-            story: currentState,
-            message: 'Session restored successfully'
-        });
-    } catch (error) {
-        console.error('Error restoring session:', error);
-        res.status(500).json({ error: 'Failed to restore session' });
-    }
+// Report malformed or oversized requests as JSON rather than an HTML page.
+app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    const tooLarge = error && error.type === 'entity.too.large';
+    console.error('Request error:', error && error.message);
+    res.status(tooLarge ? 413 : 400).json({
+        error: tooLarge ? 'This journey has grown too large to send.' : 'The request could not be read.'
+    });
 });
 
 app.listen(port, () => {

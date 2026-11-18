@@ -794,3 +794,68 @@ footer {
         grid-template-columns: 1fr;
     }
 }
+/* Dialogs and save menu additions */
+.dialog-overlay {
+    z-index: 1100;
+}
+
+.dialog-content {
+    max-width: 460px;
+}
+
+.dialog-message {
+    text-align: center;
+    color: #b8b8b8;
+    margin-bottom: 1.5rem;
+    line-height: 1.6;
+}
+
+.dialog-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.8rem;
+    margin-bottom: 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 215, 0, 0.3);
+    border-radius: 4px;
+    color: #e8e8e8;
+    font-family: inherit;
+    font-size: 16px; /* 16px stops iPhone Safari zooming in on focus */
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: 0.8rem;
+}
+
+.dialog-buttons .close-menu-btn {
+    flex: 1;
+}
+
+.dialog-primary {
+    background: rgba(255, 215, 0, 0.3);
+    color: #ffd700;
+}
+
+.save-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.save-item-unreadable {
+    opacity: 0.6;
+}
+
+.save-hint {
+    margin-top: 1rem;
+    text-align: center;
+    color: #888;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
