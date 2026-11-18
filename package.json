@@ -1,26 +1,28 @@
 {
   "name": "wutongmountain",
   "version": "1.0.0",
-  "description": "A dream doctor's journey - interactive narrative powered by Claude AI",
+  "description": "WuTong Mountain (梧桐山) - an interactive narrative about a dream doctor, told by Claude",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "node --watch server.js"
   },
-  "keywords": ["interactive-fiction", "ai", "claude", "narrative"],
+  "keywords": [
+    "interactive-fiction",
+    "ai",
+    "claude",
+    "narrative"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "engines": {
-    "node": "20.x"
+    "node": "22.x"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1"
+    "@anthropic-ai/sdk": "^1.10.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.3.0"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.11"
-  }
+  "private": true
 }

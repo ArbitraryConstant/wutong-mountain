@@ -1,23 +1,14 @@
-// ===== GAME STATE =====
+'use strict';
+
+// WuTong Mountain - everything the page does in the browser.
 //
 // The browser owns the whole journey. `game` is the single source of truth:
 //   { id, startTime, opening: story, turns: [{ choice, choiceIndex, story, at }] }
-// where a story is { narrative, choices, metadata }. The server keeps nothing,
-// so saving and loading never need the network.
-//
-// The variables below `game` are derived from it by syncDerived() and exist
-// only so the journal and export code can read them. Never set them directly.
-let game = null;
-let currentStory = null;
-let journalEntries = [];
-let stepCount = 0;
-let dreamCount = 0;
-let startTime = null;
+// where a story is { narrative, choices, metadata: { location, dreamState, atmosphere } }.
+// Everything on screen (story, journal, counters, exports) is drawn from `game`.
+// The server keeps nothing, so saving and loading never need the network.
 
-let timeInterval = null;
-let busy = false;             // true while waiting for the server
-let gameEpoch = 0;            // changes whenever a different journey is put on screen
-let unsavedProgress = false;  // progress exists that is only in the autosave
+// ===== SETTINGS =====
 
 // Where saves live in the browser's localStorage.
 const STORE = {
@@ -30,8 +21,23 @@ const STORE = {
     legacySaves: 'wutongMountainSaves'
 };
 
+const APP_ID = 'wutong-mountain';
 const SAVE_VERSION = 2;
+const MAX_SAVE_NAME_LENGTH = 80;
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+const MIST_PARTICLES = 30;
+const TOAST_MS = 3000;
+
+const STORAGE_PROBLEM = 'Your browser would not store the save. Its storage may be full, or blocked (for example in private browsing). You can still keep this journey with Load → Download.';
+
+// ===== STATE =====
+
+let game = null;              // the journey on screen, or null on the opening screen
+let busy = false;             // true while waiting for the server
+let gameEpoch = 0;            // changes whenever a different journey is put on screen
+let unsavedProgress = false;  // progress exists that is only in the autosave
+let clockTimer = null;
+let toastTimer = null;
 
 const elements = {
     startButton: document.getElementById('start-button'),
@@ -41,35 +47,19 @@ const elements = {
     exportButton: document.getElementById('export-button'),
     journalToggle: document.getElementById('journal-toggle'),
     loading: document.getElementById('loading'),
-    narrativeDisplay: document.getElementById('narrative-display'),
     narrativeText: document.getElementById('narrative-text'),
     locationInfo: document.getElementById('location-info'),
     choicesContainer: document.getElementById('choices-container'),
     choicesGrid: document.querySelector('.choices-grid'),
-    saveStatus: document.getElementById('save-status'),
     dreamJournal: document.getElementById('dream-journal'),
     journalPath: document.getElementById('journal-path'),
-    stepCountEl: document.getElementById('step-count'),
-    dreamCountEl: document.getElementById('dream-count'),
-    timeElapsedEl: document.getElementById('time-elapsed'),
+    stepCount: document.getElementById('step-count'),
+    dreamCount: document.getElementById('dream-count'),
+    timeElapsed: document.getElementById('time-elapsed'),
     closeJournal: document.getElementById('close-journal'),
-    heroSection: document.getElementById('hero-section')
+    heroSection: document.getElementById('hero-section'),
+    mistParticles: document.getElementById('mist-particles')
 };
-
-// Event Listeners
-elements.startButton.addEventListener('click', startGame);
-elements.restartButton.addEventListener('click', restartGame);
-elements.saveButton.addEventListener('click', saveGame);
-elements.loadButton.addEventListener('click', showLoadMenu);
-elements.exportButton.addEventListener('click', exportJourney);
-elements.journalToggle.addEventListener('click', toggleJournal);
-elements.closeJournal.addEventListener('click', toggleJournal);
-
-// Initialize
-createMistParticles();
-migrateLegacySaves();
-elements.loadButton.classList.remove('hidden'); // always available: it also imports save files
-showContinueButton();
 
 // ===== SMALL HELPERS =====
 
@@ -80,81 +70,138 @@ function el(tag, className, text) {
     return node;
 }
 
+function button(className, label, onClick) {
+    const node = el('button', className, label);
+    node.type = 'button';
+    node.addEventListener('click', onClick);
+    return node;
+}
+
 function newId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-function setBusy(value) {
-    busy = value;
-    elements.saveButton.disabled = value;
-    elements.loadButton.disabled = value;
-    elements.startButton.disabled = value;
-    const continueBtn = document.getElementById('load-autosave-button');
-    if (continueBtn) continueBtn.disabled = value;
+function plural(count, word) {
+    return `${count} ${word}${count === 1 ? '' : 's'}`;
 }
 
-// ===== DIALOGS =====
-// Drawn on the page rather than using the browser's alert/confirm/prompt
-// pop-ups, which some phone browsers block.
+function formatDate(iso) {
+    const date = new Date(iso);
+    return isNaN(date) ? 'Unknown date' : date.toLocaleString();
+}
 
-function showDialog({ title, message, input, buttons }) {
-    return new Promise(resolve => {
-        const overlay = el('div', 'load-menu dialog-overlay');
-        const box = el('div', 'load-menu-content dialog-content');
-        box.appendChild(el('h2', '', title));
-        if (message) box.appendChild(el('p', 'dialog-message', message));
+// "12m", "3h 5m", "2d 4h"
+function formatDuration(ms) {
+    const minutes = Math.max(0, Math.floor(ms / 60000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ${minutes % 60}m`;
+    return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
 
-        let inputEl = null;
-        if (input) {
-            inputEl = el('input', 'dialog-input');
-            inputEl.type = 'text';
-            inputEl.maxLength = 80;
-            inputEl.value = input.value || '';
-            box.appendChild(inputEl);
+function todayString() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, char => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+    ));
+}
+
+function downloadFile(content, filename, mimeType) {
+    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+    const link = el('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+}
+
+// ===== READING A JOURNEY =====
+// The one place that answers questions about a journey, for the screen,
+// the journal, the load menu and the exports alike.
+
+function isDreaming(story) {
+    return story.metadata.dreamState === 'dreaming';
+}
+
+function stateIcon(story) {
+    return isDreaming(story) ? '💭' : '👁️';
+}
+
+function latestStory(journey) {
+    const turns = journey.turns;
+    return turns.length ? turns[turns.length - 1].story : journey.opening;
+}
+
+function countDreams(journey) {
+    return journey.turns.filter(turn => isDreaming(turn.story)).length;
+}
+
+// The journey as a list of passages: the opening, then one per step.
+function passages(journey) {
+    return [
+        { title: 'The Beginning', choice: null, story: journey.opening },
+        ...journey.turns.map((turn, i) => ({ title: `Step ${i + 1}`, choice: turn.choice, story: turn.story }))
+    ];
+}
+
+// ===== VALIDATION =====
+// Anything read from storage, a file, or the server passes through these
+// before it is used, so a damaged save can never half-load.
+
+function cleanStory(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (typeof raw.narrative !== 'string' || !raw.narrative.trim()) return null;
+
+    const meta = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
+    const text = (value, fallback) =>
+        typeof value === 'string' && value.trim() ? value.trim() : fallback;
+
+    return {
+        narrative: raw.narrative,
+        choices: Array.isArray(raw.choices)
+            ? raw.choices.filter(c => typeof c === 'string' && c.trim())
+            : [],
+        metadata: {
+            location: text(meta.location, 'Unknown'),
+            dreamState: meta.dreamState === 'dreaming' ? 'dreaming' : 'waking',
+            atmosphere: text(meta.atmosphere, 'uncertain')
         }
+    };
+}
 
-        const finish = value => {
-            overlay.remove();
-            resolve({ button: value, value: inputEl ? inputEl.value : undefined });
-        };
+// Returns a clean copy of a journey, or null if it cannot be played.
+function cleanGame(raw) {
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.turns)) return null;
 
-        const row = el('div', 'dialog-buttons');
-        buttons.forEach(button => {
-            const btn = el('button', button.className || 'close-menu-btn', button.label);
-            btn.addEventListener('click', () => finish(button.value));
-            row.appendChild(btn);
+    const opening = cleanStory(raw.opening);
+    if (!opening) return null;
+
+    const turns = [];
+    for (const turn of raw.turns) {
+        const story = cleanStory(turn && turn.story);
+        if (!story || typeof turn.choice !== 'string' || !turn.choice.trim()) return null;
+        turns.push({
+            choice: turn.choice,
+            choiceIndex: Number.isInteger(turn.choiceIndex) ? turn.choiceIndex : null,
+            story,
+            at: typeof turn.at === 'string' ? turn.at : null
         });
-        box.appendChild(row);
+    }
 
-        if (inputEl) {
-            inputEl.addEventListener('keydown', event => {
-                if (event.key === 'Enter') finish(buttons[0].value);
-            });
-        }
+    const journey = {
+        id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
+        startTime: Number.isFinite(raw.startTime) ? raw.startTime : Date.now(),
+        opening,
+        turns
+    };
 
-        overlay.appendChild(box);
-        document.body.appendChild(overlay);
-        if (inputEl) {
-            inputEl.focus();
-            inputEl.select();
-        }
-    });
-}
-
-function showMessage(title, message) {
-    return showDialog({ title, message, buttons: [{ label: 'OK', value: true }] });
-}
-
-async function confirmDialog(title, message, okLabel) {
-    const result = await showDialog({
-        title,
-        message,
-        buttons: [
-            { label: okLabel, value: true, className: 'close-menu-btn dialog-primary' },
-            { label: 'Cancel', value: false }
-        ]
-    });
-    return result.button === true;
+    // The story currently on screen must offer choices, or play cannot go on.
+    return latestStory(journey).choices.length ? journey : null;
 }
 
 // ===== STORAGE =====
@@ -203,97 +250,145 @@ function storeKeys(prefix) {
     }
 }
 
-const STORAGE_PROBLEM = 'Your browser would not store the save. Its storage may be full, or blocked (for example in private browsing). You can still keep this journey with Load → Download.';
+// ===== OVERLAYS, DIALOGS AND MESSAGES =====
+// Drawn on the page rather than using the browser's alert/confirm/prompt
+// pop-ups, which some phone browsers block.
 
-// ===== VALIDATION =====
-// Anything read from storage, a file, or the server passes through these
-// before it is used, so a damaged save can never half-load.
+// A dimmed full-screen layer holding one panel. `onDismiss` runs when the
+// player presses Escape or taps outside the panel.
+function openOverlay({ id, className, title, onDismiss }) {
+    const overlay = el('div', className ? `overlay ${className}` : 'overlay');
+    if (id) overlay.id = id;
+    overlay.dismiss = onDismiss;
+    overlay.addEventListener('click', event => {
+        if (event.target === overlay) onDismiss();
+    });
 
-function cleanStory(raw) {
-    if (!raw || typeof raw !== 'object') return null;
-    if (typeof raw.narrative !== 'string' || !raw.narrative.trim()) return null;
+    const panel = el('div', 'panel');
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', title);
+    panel.appendChild(el('h2', '', title));
 
-    const meta = raw.metadata && typeof raw.metadata === 'object' ? raw.metadata : {};
-    const text = (value, fallback) =>
-        typeof value === 'string' && value.trim() ? value.trim() : fallback;
-
-    return {
-        narrative: raw.narrative,
-        choices: Array.isArray(raw.choices)
-            ? raw.choices.filter(c => typeof c === 'string' && c.trim())
-            : [],
-        metadata: {
-            location: text(meta.location, 'Unknown'),
-            dreamState: meta.dreamState === 'dreaming' ? 'dreaming' : 'waking',
-            atmosphere: text(meta.atmosphere, 'uncertain')
-        }
-    };
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    return { overlay, panel };
 }
 
-// Returns a clean copy of a journey, or null if it cannot be played.
-function cleanGame(raw) {
-    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.turns)) return null;
+function topOverlay() {
+    const open = document.querySelectorAll('.overlay');
+    return open.length ? open[open.length - 1] : null;
+}
 
-    const opening = cleanStory(raw.opening);
-    if (!opening) return null;
+// Shows a dialog and resolves with { button, value } once it is answered.
+// `button` is the chosen button's value, or null if the dialog was dismissed.
+// `value` is the text typed, when the dialog has an input.
+function showDialog({ title, message, body, input, buttons }) {
+    return new Promise(resolve => {
+        let inputEl = null;
 
-    const turns = [];
-    for (const turn of raw.turns) {
-        const story = cleanStory(turn && turn.story);
-        if (!story || typeof turn.choice !== 'string' || !turn.choice.trim()) return null;
-        turns.push({
-            choice: turn.choice,
-            choiceIndex: Number.isInteger(turn.choiceIndex) ? turn.choiceIndex : null,
-            story,
-            at: typeof turn.at === 'string' ? turn.at : null
+        const finish = value => {
+            overlay.remove();
+            resolve({ button: value, value: inputEl ? inputEl.value : undefined });
+        };
+
+        const { overlay, panel } = openOverlay({
+            className: 'dialog-overlay',
+            title,
+            onDismiss: () => finish(null)
         });
-    }
+        panel.classList.add('dialog-content');
 
-    // The story currently on screen must offer choices, or play cannot go on.
-    const current = turns.length ? turns[turns.length - 1].story : opening;
-    if (current.choices.length === 0) return null;
+        if (message) panel.appendChild(el('p', 'dialog-message', message));
+        if (body) panel.appendChild(body);
 
-    return {
-        id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
-        startTime: Number.isFinite(raw.startTime) ? raw.startTime : Date.now(),
-        opening,
-        turns
-    };
+        if (input) {
+            inputEl = el('input', 'dialog-input');
+            inputEl.type = 'text';
+            inputEl.maxLength = MAX_SAVE_NAME_LENGTH;
+            inputEl.value = input.value || '';
+            inputEl.setAttribute('aria-label', message || title);
+            inputEl.addEventListener('keydown', event => {
+                if (event.key === 'Enter') finish(buttons[0].value);
+            });
+            panel.appendChild(inputEl);
+        }
+
+        const row = el('div', 'dialog-buttons');
+        const buttonEls = buttons.map(spec =>
+            button(spec.primary ? 'menu-btn dialog-primary' : 'menu-btn', spec.label, () => finish(spec.value)));
+        row.append(...buttonEls);
+        panel.appendChild(row);
+
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+        } else {
+            buttonEls[0].focus();
+        }
+    });
 }
 
-function isDreaming(story) {
-    return story.metadata.dreamState === 'dreaming';
+function showMessage(title, message) {
+    return showDialog({ title, message, buttons: [{ label: 'OK', value: true }] });
+}
+
+async function confirmDialog(title, message, okLabel) {
+    const result = await showDialog({
+        title,
+        message,
+        buttons: [
+            { label: okLabel, value: true, primary: true },
+            { label: 'Cancel', value: false }
+        ]
+    });
+    return result.button === true;
+}
+
+// A brief note at the bottom of the screen that fades by itself.
+function toast(message) {
+    let node = document.getElementById('toast');
+    if (!node) {
+        node = el('div', 'toast');
+        node.id = 'toast';
+        node.setAttribute('role', 'status');
+        document.body.appendChild(node);
+    }
+    node.textContent = message;
+    node.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.classList.remove('show'), TOAST_MS);
 }
 
 // ===== PUTTING A JOURNEY ON SCREEN =====
 
-function syncDerived() {
-    currentStory = game.turns.length ? game.turns[game.turns.length - 1].story : game.opening;
-    startTime = game.startTime;
-    stepCount = game.turns.length;
-    dreamCount = game.turns.filter(turn => isDreaming(turn.story)).length;
-    journalEntries = game.turns.map((turn, i) => ({
-        step: i + 1,
-        choice: turn.choice,
-        location: turn.story.metadata.location,
-        dreamState: turn.story.metadata.dreamState,
-        narrative: turn.story.narrative,
-        timestamp: turn.at
-    }));
+function setBusy(value) {
+    busy = value;
+    elements.saveButton.disabled = value;
+    elements.loadButton.disabled = value;
+    elements.startButton.disabled = value;
+    const continueBtn = document.getElementById('load-autosave-button');
+    if (continueBtn) continueBtn.disabled = value;
+}
+
+function showLoading() {
+    elements.loading.classList.remove('hidden');
+    elements.choicesContainer.classList.add('hidden');
+}
+
+function hideLoading() {
+    elements.loading.classList.add('hidden');
 }
 
 // Redraw everything from `game`.
 function renderGame() {
-    syncDerived();
-
-    startTimeTracking();
-    updateStepCount();
-    updateDreamCount();
-    renderJournal();
+    const story = latestStory(game);
 
     hideLoading();
-    displayStory(currentStory);
-    updateBackgroundColor(currentStory.metadata);
+    displayStory(story);
+    applyAtmosphere(story);
+    renderJournal();
+    startClock();
 
     elements.heroSection.classList.add('hidden');
     document.getElementById('load-autosave-button')?.remove();
@@ -309,6 +404,38 @@ function applyGame(newGame) {
     gameEpoch++;
     game = newGame;
     renderGame();
+}
+
+function displayStory(story) {
+    elements.locationInfo.textContent = '';
+    elements.locationInfo.append(
+        `${stateIcon(story)} `, el('strong', '', 'Location:'), ` ${story.metadata.location} | `,
+        el('strong', '', 'State:'), ` ${story.metadata.dreamState} | `,
+        el('strong', '', 'Atmosphere:'), ` ${story.metadata.atmosphere}`
+    );
+
+    elements.narrativeText.textContent = story.narrative;
+    displayChoices(story.choices);
+}
+
+function displayChoices(choices) {
+    elements.choicesGrid.textContent = '';
+
+    choices.forEach((choice, index) => {
+        const choiceBtn = button('choice-btn', undefined, () => makeChoice(choice, index));
+        choiceBtn.append(el('span', 'choice-number', String(index + 1)), ` ${choice}`);
+        elements.choicesGrid.appendChild(choiceBtn);
+    });
+
+    elements.choicesContainer.classList.remove('hidden');
+}
+
+// The page background follows the story: waking, dreaming, or nightmare.
+function applyAtmosphere(story) {
+    const dreaming = isDreaming(story);
+    const dark = /dark|nightmare/i.test(story.metadata.atmosphere);
+    document.body.classList.toggle('dreaming', dreaming && !dark);
+    document.body.classList.toggle('nightmare', dreaming && dark);
 }
 
 // ===== PLAYING =====
@@ -331,11 +458,7 @@ async function startGame() {
     showLoading();
 
     try {
-        const response = await fetch('/api/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const story = await readStoryResponse(response);
+        const story = await requestStory('/api/start');
         if (epoch !== gameEpoch) return; // a different journey was loaded meanwhile
 
         applyGame({ id: newId(), startTime: Date.now(), opening: story, turns: [] });
@@ -344,16 +467,60 @@ async function startGame() {
     } catch (error) {
         console.error('Error starting game:', error);
         hideLoading();
-        showMessage('The journey could not begin', error.userMessage || 'Please refresh and try again.');
+        showMessage('The journey could not begin', error.userMessage || 'Please check your connection and try again.');
     } finally {
         setBusy(false);
     }
 }
 
-// Read a story reply from the server. Throws (with a message that is safe to
-// show the player in error.userMessage) if the server reported an error or
-// sent back something that isn't a usable story.
-async function readStoryResponse(response) {
+async function makeChoice(choice, index) {
+    if (busy || !game) return;
+
+    const epoch = gameEpoch;
+    setBusy(true);
+    showLoading();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    try {
+        const story = await requestStory('/api/continue', {
+            opening: game.opening,
+            turns: game.turns.map(turn => ({
+                choice: turn.choice,
+                choiceIndex: turn.choiceIndex,
+                story: turn.story
+            })),
+            choice,
+            choiceIndex: index
+        });
+        if (epoch !== gameEpoch) return; // a different journey was loaded meanwhile
+
+        // Only reached when the server answered with a usable story, so a
+        // failed choice never adds a step.
+        game.turns.push({ choice, choiceIndex: index, story, at: new Date().toISOString() });
+        unsavedProgress = true;
+        renderGame();
+        autosave();
+    } catch (error) {
+        console.error('Error continuing story:', error);
+        hideLoading();
+        // Bring the current choices back so the player can try again.
+        if (epoch === gameEpoch) elements.choicesContainer.classList.remove('hidden');
+        showMessage('The mist obscures the path', error.userMessage || 'Please check your connection and try again.');
+    } finally {
+        setBusy(false);
+    }
+}
+
+// Ask the server for a story. Throws (with a message that is safe to show
+// the player in error.userMessage) if the server reported an error or sent
+// back something that isn't a usable story.
+async function requestStory(url, payload) {
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload ? JSON.stringify(payload) : undefined
+    });
+
     let data = null;
     try {
         data = await response.json();
@@ -377,54 +544,6 @@ async function readStoryResponse(response) {
     return story;
 }
 
-async function makeChoice(choice, index) {
-    if (busy || !game) return;
-
-    const epoch = gameEpoch;
-    setBusy(true);
-    showLoading();
-
-    // Scroll to top immediately when choice is made
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    try {
-        const response = await fetch('/api/continue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                opening: game.opening,
-                turns: game.turns.map(turn => ({
-                    choice: turn.choice,
-                    choiceIndex: turn.choiceIndex,
-                    story: turn.story
-                })),
-                choice,
-                choiceIndex: index
-            })
-        });
-
-        // Throws if the server failed, so nothing below (journal, step count,
-        // autosave) runs for a choice that didn't go through.
-        const story = await readStoryResponse(response);
-        if (epoch !== gameEpoch) return; // a different journey was loaded meanwhile
-
-        game.turns.push({ choice, choiceIndex: index, story, at: new Date().toISOString() });
-        unsavedProgress = true;
-        renderGame();
-        autosave();
-    } catch (error) {
-        console.error('Error continuing story:', error);
-        hideLoading();
-        // Bring the current choices back so the player can try again
-        if (epoch === gameEpoch && currentStory?.choices?.length) {
-            elements.choicesContainer.classList.remove('hidden');
-        }
-        showMessage('The mist obscures the path', error.userMessage || 'Please try again.');
-    } finally {
-        setBusy(false);
-    }
-}
-
 async function restartGame() {
     if (busy) return;
     const ok = await confirmDialog(
@@ -437,455 +556,281 @@ async function restartGame() {
     location.reload();
 }
 
-function displayStory(story) {
-    const dreamIcon = isDreaming(story) ? '💭' : '👁️';
-    elements.locationInfo.textContent = '';
-    elements.locationInfo.append(
-        `${dreamIcon} `, el('strong', '', 'Location:'), ` ${story.metadata.location} | `,
-        el('strong', '', 'State:'), ` ${story.metadata.dreamState} | `,
-        el('strong', '', 'Atmosphere:'), ` ${story.metadata.atmosphere}`
-    );
-
-    // Display text instantly
-    elements.narrativeText.textContent = story.narrative;
-    displayChoices(story.choices);
-}
-
-function displayChoices(choices) {
-    elements.choicesGrid.textContent = '';
-
-    choices.forEach((choice, index) => {
-        const button = el('button', 'choice-btn');
-        button.append(el('span', 'choice-number', String(index + 1)), ` ${choice}`);
-        button.addEventListener('click', () => makeChoice(choice, index));
-        elements.choicesGrid.appendChild(button);
-    });
-
-    elements.choicesContainer.classList.remove('hidden');
-}
-
-function showLoading() {
-    elements.loading.classList.remove('hidden');
-    elements.choicesContainer.classList.add('hidden');
-}
-
-function hideLoading() {
-    elements.loading.classList.add('hidden');
-}
-
-// ===== JOURNAL FUNCTIONS =====
-
-function updateStepCount() {
-    elements.stepCountEl.textContent = stepCount;
-}
-
-function updateDreamCount() {
-    elements.dreamCountEl.textContent = dreamCount;
-}
-
-function startTimeTracking() {
-    const update = () => {
-        const elapsed = Math.floor((Date.now() - startTime) / 60000); // minutes
-        elements.timeElapsedEl.textContent = elapsed + 'm';
-    };
-    if (timeInterval) clearInterval(timeInterval);
-    update();
-    timeInterval = setInterval(update, 10000); // Update every 10 seconds
-}
-
-// Rebuild the journal list from journalEntries.
-function renderJournal() {
-    elements.journalPath.textContent = '';
-
-    if (journalEntries.length === 0) {
-        elements.journalPath.appendChild(el('p', 'journal-empty', 'Your path will be recorded here...'));
+// Keyboard: Escape closes whatever is open; number keys pick a choice.
+function handleKeydown(event) {
+    if (event.key === 'Escape') {
+        const overlay = topOverlay();
+        if (overlay) {
+            overlay.dismiss();
+        } else if (!elements.dreamJournal.classList.contains('hidden')) {
+            toggleJournal();
+        }
         return;
     }
 
-    journalEntries.forEach(entry => {
-        const dreamIcon = entry.dreamState === 'dreaming' ? '💭' : '👁️';
-        const entryEl = el('div', 'journal-entry');
-        const header = el('div', 'journal-entry-header');
+    if (!game || busy || topOverlay()) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(event.target?.tagName || '')) return;
+
+    const number = Number(event.key);
+    const choiceBtn = Number.isInteger(number) && number >= 1
+        ? elements.choicesGrid.children[number - 1]
+        : null;
+    if (choiceBtn && !elements.choicesContainer.classList.contains('hidden')) choiceBtn.click();
+}
+
+// ===== JOURNAL =====
+
+function renderJournal() {
+    elements.stepCount.textContent = game.turns.length;
+    elements.dreamCount.textContent = countDreams(game);
+    elements.journalPath.textContent = '';
+
+    passages(game).forEach(passage => {
+        const entry = button('journal-entry', undefined, () => showPassage(passage));
+        entry.title = 'Read this passage again';
+
+        const header = el('span', 'journal-entry-header');
         header.append(
-            el('span', 'journal-step', `${dreamIcon} Step ${entry.step}`),
-            el('span', 'journal-location', entry.location)
+            el('span', 'journal-step', `${stateIcon(passage.story)} ${passage.title}`),
+            el('span', 'journal-location', passage.story.metadata.location)
         );
-        entryEl.append(header, el('div', 'journal-choice', `"${entry.choice}"`));
-        elements.journalPath.appendChild(entryEl);
+        entry.appendChild(header);
+        if (passage.choice) entry.appendChild(el('span', 'journal-choice', `"${passage.choice}"`));
+
+        elements.journalPath.appendChild(entry);
     });
 
-    // Auto-scroll to latest entry
-    elements.journalPath.scrollTop = elements.journalPath.scrollHeight;
+    // Keep the latest entry in view.
+    const scroller = elements.journalPath.parentNode;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+}
+
+// Re-read an earlier part of the journey.
+function showPassage(passage) {
+    const body = el('div', 'passage');
+    if (passage.choice) body.appendChild(el('p', 'passage-choice', `"${passage.choice}"`));
+    body.appendChild(el('p', 'passage-text', passage.story.narrative));
+
+    showDialog({
+        title: `${passage.title} · ${passage.story.metadata.location}`,
+        body,
+        buttons: [{ label: 'Close', value: true }]
+    });
 }
 
 function toggleJournal() {
-    elements.dreamJournal.classList.toggle('hidden');
-    
-    // Update button text
-    if (elements.dreamJournal.classList.contains('hidden')) {
-        elements.journalToggle.innerHTML = '📔 Journal';
-    } else {
-        elements.journalToggle.innerHTML = '📔 Close Journal';
-    }
+    const nowHidden = elements.dreamJournal.classList.toggle('hidden');
+    elements.journalToggle.textContent = nowHidden ? '📔 Journal' : '📔 Close Journal';
+    elements.journalToggle.setAttribute('aria-expanded', String(!nowHidden));
 }
 
-// ===== EXPORT JOURNEY =====
-
-function exportJourney() {
-    if (journalEntries.length === 0) {
-        showMessage('Nothing to export', 'No journey to export yet.');
-        return;
-    }
-    
-    showExportMenu();
+// The "Begun" figure in the journal: how long ago this journey started.
+function startClock() {
+    const update = () => {
+        elements.timeElapsed.textContent = `${formatDuration(Date.now() - game.startTime)} ago`;
+    };
+    clearInterval(clockTimer);
+    update();
+    clockTimer = setInterval(update, 30000);
 }
+
+// ===== EXPORTING THE JOURNEY AS A DOCUMENT =====
+
+const EXPORT_FORMATS = [
+    { icon: '📝', name: 'Markdown', description: '.md - For note apps', run: () => exportAsFile(buildMarkdown(), 'md', 'text/markdown', 'Markdown') },
+    { icon: '📄', name: 'PDF', description: '.pdf - Formatted document', run: exportAsPdf },
+    { icon: '📋', name: 'Plain Text', description: '.txt - Simple text file', run: () => exportAsFile(buildPlainText(), 'txt', 'text/plain', 'Text') },
+    { icon: '🌐', name: 'HTML', description: '.html - Web page', run: () => exportAsFile(buildHtml(), 'html', 'text/html', 'HTML') }
+];
 
 function showExportMenu() {
-    const modal = document.createElement('div');
-    modal.className = 'load-menu';
-    modal.innerHTML = `
-        <div class="load-menu-content">
-            <h2>Export Journey</h2>
-            <p style="text-align: center; color: #b8b8b8; margin-bottom: 2rem;">Choose your preferred format:</p>
-            <div class="export-format-grid">
-                <button onclick="exportAsMarkdown()" class="export-format-btn">
-                    <span class="format-icon">📝</span>
-                    <span class="format-name">Markdown</span>
-                    <span class="format-desc">.md - For note apps</span>
-                </button>
-                <button onclick="exportAsPDF()" class="export-format-btn">
-                    <span class="format-icon">📄</span>
-                    <span class="format-name">PDF</span>
-                    <span class="format-desc">.pdf - Formatted document</span>
-                </button>
-                <button onclick="exportAsText()" class="export-format-btn">
-                    <span class="format-icon">📋</span>
-                    <span class="format-name">Plain Text</span>
-                    <span class="format-desc">.txt - Simple text file</span>
-                </button>
-                <button onclick="exportAsHTML()" class="export-format-btn">
-                    <span class="format-icon">🌐</span>
-                    <span class="format-name">HTML</span>
-                    <span class="format-desc">.html - Web page</span>
-                </button>
-            </div>
-            <button onclick="closeExportMenu()" class="close-menu-btn" style="margin-top: 1rem;">Cancel</button>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
+    if (!game) return;
+    closeExportMenu();
+
+    const { panel } = openOverlay({ id: 'export-menu', title: 'Export Journey', onDismiss: closeExportMenu });
+    panel.appendChild(el('p', 'dialog-message', 'Choose your preferred format:'));
+
+    const grid = el('div', 'export-format-grid');
+    EXPORT_FORMATS.forEach(format => {
+        const formatBtn = button('export-format-btn', undefined, () => {
+            closeExportMenu();
+            format.run();
+        });
+        formatBtn.append(
+            el('span', 'format-icon', format.icon),
+            el('span', 'format-name', format.name),
+            el('span', 'format-desc', format.description)
+        );
+        grid.appendChild(formatBtn);
+    });
+
+    panel.append(grid, button('menu-btn', 'Cancel', closeExportMenu));
 }
 
 function closeExportMenu() {
-    const menu = document.querySelector('.load-menu');
-    if (menu) menu.remove();
+    document.getElementById('export-menu')?.remove();
 }
 
-function exportAsMarkdown() {
-    let markdown = `# WuTong Mountain Journey\n## 梧桐山 - The Dream Doctor's Path\n\n`;
-    markdown += `**Journey Statistics:**\n`;
-    markdown += `- Steps Taken: ${stepCount}\n`;
-    markdown += `- Dreams Entered: ${dreamCount}\n`;
-    markdown += `- Started: ${new Date(startTime).toLocaleString()}\n`;
-    markdown += `- Duration: ${Math.floor((Date.now() - startTime) / 60000)} minutes\n\n`;
-    markdown += `---\n\n`;
-    
-    journalEntries.forEach((entry) => {
-        markdown += `## Step ${entry.step}: ${entry.location}\n\n`;
-        markdown += `**State:** ${entry.dreamState === 'dreaming' ? '💭 Dreaming' : '👁️ Waking'}\n\n`;
-        markdown += `**Choice Made:**\n> ${entry.choice}\n\n`;
-        markdown += `**What Happened:**\n\n${entry.narrative}\n\n`;
-        markdown += `---\n\n`;
-    });
-    
-    markdown += `\n*Generated from WuTong Mountain*\n*A journey without destination | 無為*`;
-    
-    downloadFile(markdown, `wutong-journey-${getDateString()}.md`, 'text/markdown');
-    closeExportMenu();
-    showSaveStatus('Journey exported as Markdown');
+function exportAsFile(content, extension, mimeType, label) {
+    downloadFile(content, `wutong-journey-${todayString()}.${extension}`, mimeType);
+    toast(`Journey exported as ${label}`);
 }
 
-function exportAsPDF() {
-    const htmlContent = generateHTMLContent();
-    
+function exportAsPdf() {
     const printWindow = window.open('', '_blank');
-    printWindow.document.write(htmlContent);
+    if (!printWindow) {
+        showMessage('Pop-up blocked', 'Your browser blocked the print window. Allow pop-ups for this site, or export as HTML and print that file.');
+        return;
+    }
+    printWindow.document.write(buildHtml());
     printWindow.document.close();
-    
-    setTimeout(() => {
-        printWindow.print();
-    }, 500);
-    
-    closeExportMenu();
-    showSaveStatus('Opening print dialog - save as PDF');
+    setTimeout(() => printWindow.print(), 500);
+    toast('Opening print dialog - choose "Save as PDF"');
 }
 
-function exportAsText() {
-    let text = `WuTong Mountain Journey\n梧桐山 - The Dream Doctor's Path\n\n`;
-    text += `Journey Statistics:\n`;
-    text += `- Steps Taken: ${stepCount}\n`;
-    text += `- Dreams Entered: ${dreamCount}\n`;
-    text += `- Started: ${new Date(startTime).toLocaleString()}\n`;
-    text += `- Duration: ${Math.floor((Date.now() - startTime) / 60000)} minutes\n\n`;
-    text += `${'='.repeat(60)}\n\n`;
-    
-    journalEntries.forEach((entry) => {
-        text += `Step ${entry.step}: ${entry.location}\n`;
-        text += `State: ${entry.dreamState === 'dreaming' ? 'Dreaming' : 'Waking'}\n\n`;
-        text += `Choice Made:\n  "${entry.choice}"\n\n`;
-        text += `What Happened:\n${entry.narrative}\n\n`;
-        text += `${'-'.repeat(60)}\n\n`;
+// The facts shown at the top of every export.
+function exportStats() {
+    return [
+        ['Steps Taken', game.turns.length],
+        ['Dreams Entered', countDreams(game)],
+        ['Started', new Date(game.startTime).toLocaleString()],
+        ['Exported', new Date().toLocaleString()]
+    ];
+}
+
+function buildMarkdown() {
+    const parts = [
+        '# WuTong Mountain Journey',
+        "## 梧桐山 - The Dream Doctor's Path",
+        '**Journey Statistics:**\n' + exportStats().map(([label, value]) => `- ${label}: ${value}`).join('\n'),
+        '---'
+    ];
+
+    passages(game).forEach(({ title, choice, story }) => {
+        parts.push(`## ${title}: ${story.metadata.location}`);
+        parts.push(`**State:** ${stateIcon(story)} ${isDreaming(story) ? 'Dreaming' : 'Waking'}`);
+        if (choice) parts.push(`**Choice Made:**\n> ${choice}`);
+        parts.push(story.narrative, '---');
     });
-    
-    text += `\nGenerated from WuTong Mountain\nA journey without destination | 無為`;
-    
-    downloadFile(text, `wutong-journey-${getDateString()}.txt`, 'text/plain');
-    closeExportMenu();
-    showSaveStatus('Journey exported as Text');
+
+    parts.push('*Generated from WuTong Mountain*\n*A journey without destination | 無為*');
+    return parts.join('\n\n') + '\n';
 }
 
-function exportAsHTML() {
-    const htmlContent = generateHTMLContent();
-    
-    downloadFile(htmlContent, `wutong-journey-${getDateString()}.html`, 'text/html');
-    closeExportMenu();
-    showSaveStatus('Journey exported as HTML');
+function buildPlainText() {
+    const parts = [
+        "WuTong Mountain Journey\n梧桐山 - The Dream Doctor's Path",
+        'Journey Statistics:\n' + exportStats().map(([label, value]) => `- ${label}: ${value}`).join('\n'),
+        '='.repeat(60)
+    ];
+
+    passages(game).forEach(({ title, choice, story }) => {
+        parts.push(`${title}: ${story.metadata.location}\nState: ${isDreaming(story) ? 'Dreaming' : 'Waking'}`);
+        if (choice) parts.push(`Choice Made:\n  "${choice}"`);
+        parts.push(story.narrative, '-'.repeat(60));
+    });
+
+    parts.push('Generated from WuTong Mountain\nA journey without destination | 無為');
+    return parts.join('\n\n') + '\n';
 }
 
-function generateHTMLContent() {
-    let html = `<!DOCTYPE html>
+const EXPORT_HTML_STYLE = `
+        body { font-family: Georgia, 'Times New Roman', serif; max-width: 800px; margin: 0 auto; padding: 2rem;
+               background: linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%); color: #e8e8e8; line-height: 1.8; }
+        h1 { color: #ffd700; text-align: center; font-weight: 300; letter-spacing: 0.2rem; margin-bottom: 0.5rem; }
+        h2 { color: #ffd700; font-weight: 300; letter-spacing: 0.15rem; text-align: center; font-size: 1.2rem;
+             margin-bottom: 2rem; font-style: italic; }
+        .stats { background: rgba(255, 215, 0, 0.1); border-left: 3px solid rgba(255, 215, 0, 0.5); padding: 1rem; margin: 2rem 0; }
+        .stats strong { color: #ffd700; }
+        .entry { background: rgba(255, 255, 255, 0.03); padding: 1.5rem; margin: 2rem 0; border-radius: 4px;
+                 border-left: 3px solid rgba(255, 215, 0, 0.3); }
+        .entry-header { color: #ffd700; font-size: 1.2rem; margin-bottom: 1rem; display: flex;
+                        justify-content: space-between; align-items: center; gap: 1rem; }
+        .state { font-size: 0.9rem; color: #888; }
+        .choice { background: rgba(255, 215, 0, 0.05); padding: 1rem; margin: 1rem 0;
+                  border-left: 2px solid rgba(255, 215, 0, 0.3); font-style: italic; }
+        .narrative { margin-top: 1rem; white-space: pre-line; }
+        .footer { text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid rgba(255, 215, 0, 0.2);
+                  color: #888; font-style: italic; }
+        @media print {
+            body { background: white; color: black; }
+            h1, h2, .entry-header, strong { color: #000; }
+            .stats { background: #f5f5f5; border-left-color: #333; }
+            .entry { background: #fafafa; border-left-color: #666; break-inside: avoid; }
+        }`;
+
+// The story text comes from outside this page (the server, or an imported
+// save file), so every piece is escaped before it goes into the document.
+function buildHtml() {
+    const stats = exportStats()
+        .map(([label, value]) => `${escapeHtml(label)}: ${escapeHtml(value)}`)
+        .join('<br>\n        ');
+
+    const entries = passages(game).map(({ title, choice, story }) => `
+    <div class="entry">
+        <div class="entry-header">
+            <span>${stateIcon(story)} ${escapeHtml(title)}: ${escapeHtml(story.metadata.location)}</span>
+            <span class="state">${isDreaming(story) ? 'Dreaming' : 'Waking'}</span>
+        </div>${choice ? `
+        <div class="choice"><strong>Choice Made:</strong><br>"${escapeHtml(choice)}"</div>` : ''}
+        <div class="narrative">${escapeHtml(story.narrative)}</div>
+    </div>`).join('\n');
+
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WuTong Mountain Journey</title>
-    <style>
-        body {
-            font-family: Georgia, 'Times New Roman', serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2rem;
-            background: linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
-            color: #e8e8e8;
-            line-height: 1.8;
-        }
-        h1 {
-            color: #ffd700;
-            text-align: center;
-            font-weight: 300;
-            letter-spacing: 0.2rem;
-            margin-bottom: 0.5rem;
-        }
-        h2 {
-            color: #ffd700;
-            font-weight: 300;
-            letter-spacing: 0.15rem;
-            text-align: center;
-            font-size: 1.2rem;
-            margin-bottom: 2rem;
-            font-style: italic;
-        }
-        .stats {
-            background: rgba(255, 215, 0, 0.1);
-            border-left: 3px solid rgba(255, 215, 0, 0.5);
-            padding: 1rem;
-            margin: 2rem 0;
-        }
-        .stats strong {
-            color: #ffd700;
-        }
-        .entry {
-            background: rgba(255, 255, 255, 0.03);
-            padding: 1.5rem;
-            margin: 2rem 0;
-            border-radius: 4px;
-            border-left: 3px solid rgba(255, 215, 0, 0.3);
-        }
-        .entry-header {
-            color: #ffd700;
-            font-size: 1.2rem;
-            margin-bottom: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .state {
-            font-size: 0.9rem;
-            color: #888;
-        }
-        .choice {
-            background: rgba(255, 215, 0, 0.05);
-            padding: 1rem;
-            margin: 1rem 0;
-            border-left: 2px solid rgba(255, 215, 0, 0.3);
-            font-style: italic;
-        }
-        .narrative {
-            margin-top: 1rem;
-            white-space: pre-line;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 3rem;
-            padding-top: 2rem;
-            border-top: 1px solid rgba(255, 215, 0, 0.2);
-            color: #888;
-            font-style: italic;
-        }
-        @media print {
-            body {
-                background: white;
-                color: black;
-            }
-            h1, h2, .entry-header, strong {
-                color: #000;
-            }
-            .stats {
-                background: #f5f5f5;
-                border-left-color: #333;
-            }
-            .entry {
-                background: #fafafa;
-                border-left-color: #666;
-            }
-        }
+    <style>${EXPORT_HTML_STYLE}
     </style>
 </head>
 <body>
     <h1>WuTong Mountain Journey</h1>
     <h2>梧桐山 | The Dream Doctor's Path</h2>
-    
+
     <div class="stats">
         <strong>Journey Statistics:</strong><br>
-        Steps Taken: ${stepCount}<br>
-        Dreams Entered: ${dreamCount}<br>
-        Started: ${new Date(startTime).toLocaleString()}<br>
-        Duration: ${Math.floor((Date.now() - startTime) / 60000)} minutes
+        ${stats}
     </div>
-`;
+${entries}
 
-    journalEntries.forEach((entry) => {
-        const dreamIcon = entry.dreamState === 'dreaming' ? '💭' : '👁️';
-        html += `
-    <div class="entry">
-        <div class="entry-header">
-            <span>${dreamIcon} Step ${entry.step}: ${entry.location}</span>
-            <span class="state">${entry.dreamState === 'dreaming' ? 'Dreaming' : 'Waking'}</span>
-        </div>
-        <div class="choice">
-            <strong>Choice Made:</strong><br>
-            "${entry.choice}"
-        </div>
-        <div class="narrative">
-            <strong>What Happened:</strong><br><br>
-            ${entry.narrative}
-        </div>
-    </div>
-`;
-    });
-
-    html += `
     <div class="footer">
         Generated from WuTong Mountain<br>
         A journey without destination | 無為
     </div>
 </body>
 </html>`;
-
-    return html;
 }
 
-function downloadFile(content, filename, mimeType) {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-}
-
-function getDateString() {
-    return new Date().toISOString().slice(0, 10);
-}
-
-// ===== VISUAL EFFECTS =====
-
-function updateBackgroundColor(metadata) {
-    const body = document.body;
-    
-    if (metadata.dreamState === 'dreaming') {
-        const isDark = metadata.atmosphere?.toLowerCase().includes('dark') ||
-                      metadata.atmosphere?.toLowerCase().includes('nightmare');
-        
-        if (isDark) {
-            body.style.background = 'linear-gradient(to bottom, #1a0a2e 0%, #2d1b3d 50%, #1a0a2e 100%)';
-        } else {
-            body.style.background = 'linear-gradient(to bottom, #0a1a3e 0%, #1e3a5f 50%, #2a4a7f 100%)';
-        }
-    } else {
-        body.style.background = 'linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%)';
-    }
-    
-    body.style.transition = 'background 3s ease';
-}
-
-function createMistParticles() {
-    const container = document.getElementById('mist-particles');
-    const particleCount = 30;
-    
-    for (let i = 0; i < particleCount; i++) {
-        const particle = document.createElement('div');
-        particle.className = 'mist-particle';
-        
-        particle.style.left = Math.random() * 100 + '%';
-        particle.style.top = Math.random() * 100 + '%';
-        
-        const size = Math.random() * 60 + 20;
-        particle.style.width = size + 'px';
-        particle.style.height = size + 'px';
-        
-        const duration = Math.random() * 20 + 30;
-        particle.style.animationDuration = duration + 's';
-        
-        const delay = Math.random() * 10;
-        particle.style.animationDelay = delay + 's';
-        
-        container.appendChild(particle);
-    }
-}
-
-// ===== SAVE/LOAD FUNCTIONS =====
+// ===== SAVING AND LOADING =====
 //
 // A save is { app, version, id, name, savedAt, game }. The autosave and the
 // manual saves use this same shape, as do downloaded save files. Saving and
 // loading only read and write the browser's storage - no server involved.
 
-function makeSaveRecord(name) {
+function makeSaveRecord(id, name, journey, savedAt) {
     return {
-        app: 'wutong-mountain',
+        app: APP_ID,
         version: SAVE_VERSION,
-        id: newId(),
+        id,
         name,
-        savedAt: new Date().toISOString(),
-        game
+        savedAt: savedAt || new Date().toISOString(),
+        game: journey
     };
 }
 
 // Returns a usable save record, or null if the stored data is damaged.
 function cleanSaveRecord(raw) {
-    const cleaned = cleanGame(raw && raw.game);
-    if (!cleaned) return null;
-    return {
-        app: 'wutong-mountain',
-        version: SAVE_VERSION,
-        id: typeof raw.id === 'string' && raw.id ? raw.id : newId(),
-        name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 80) : 'Unnamed journey',
-        savedAt: typeof raw.savedAt === 'string' ? raw.savedAt : new Date().toISOString(),
-        game: cleaned
-    };
+    const journey = cleanGame(raw && raw.game);
+    if (!journey) return null;
+    return makeSaveRecord(
+        typeof raw.id === 'string' && raw.id ? raw.id : newId(),
+        typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, MAX_SAVE_NAME_LENGTH) : 'Unnamed journey',
+        journey,
+        typeof raw.savedAt === 'string' ? raw.savedAt : null
+    );
 }
 
 function readAutosave() {
@@ -904,58 +849,36 @@ function listManualSaves() {
 }
 
 function describeSave(record) {
-    const turns = record.game.turns;
-    const current = turns.length ? turns[turns.length - 1].story : record.game.opening;
-    const steps = turns.length === 1 ? '1 step' : `${turns.length} steps`;
-    return `${current.metadata.location}, ${steps}`;
-}
-
-function formatDate(iso) {
-    const date = new Date(iso);
-    return isNaN(date) ? 'Unknown date' : date.toLocaleString();
+    return `${latestStory(record.game).metadata.location}, ${plural(record.game.turns.length, 'step')}`;
 }
 
 // Runs after every successful choice.
 function autosave() {
     if (!game) return;
-
-    const record = makeSaveRecord('Autosave');
-    record.id = 'autosave';
-
-    if (!storeSet(STORE.autosave, record)) {
-        showSaveStatus('⚠ Autosave failed - browser storage is full or blocked');
-        return;
+    if (storeSet(STORE.autosave, makeSaveRecord('autosave', 'Autosave', game))) {
+        toast('💾 Autosaved');
+    } else {
+        toast('⚠ Autosave failed - browser storage is full or blocked');
     }
-
-    // Show brief autosave indicator
-    const indicator = el('div', 'autosave-indicator', '💾 Autosaved');
-    document.body.appendChild(indicator);
-    setTimeout(() => {
-        indicator.classList.add('fade-out');
-        setTimeout(() => indicator.remove(), 500);
-    }, 1500);
 }
 
 async function saveGame() {
-    if (busy) return;
-    if (!game) {
-        showMessage('Nothing to save', 'No journey to save yet.');
-        return;
-    }
+    if (busy || !game) return;
 
+    const defaultName = `Journey ${new Date().toLocaleString()}`;
     const result = await showDialog({
         title: 'Save Journey',
         message: 'Name this point in your journey:',
-        input: { value: `Journey ${new Date().toLocaleString()}` },
+        input: { value: defaultName },
         buttons: [
-            { label: 'Save', value: true, className: 'close-menu-btn dialog-primary' },
+            { label: 'Save', value: true, primary: true },
             { label: 'Cancel', value: false }
         ]
     });
     if (result.button !== true) return;
 
-    const name = (result.value || '').trim().slice(0, 80) || `Journey ${new Date().toLocaleString()}`;
-    const record = makeSaveRecord(name);
+    const name = (result.value || '').trim().slice(0, MAX_SAVE_NAME_LENGTH) || defaultName;
+    const record = makeSaveRecord(newId(), name, game);
 
     if (!storeSet(STORE.savePrefix + record.id, record)) {
         showMessage('Save failed', STORAGE_PROBLEM);
@@ -963,7 +886,7 @@ async function saveGame() {
     }
 
     unsavedProgress = false;
-    showSaveStatus('Journey saved: ' + name);
+    toast(`Journey saved: ${name}`);
 }
 
 // The "Continue Journey" button on the opening screen.
@@ -971,13 +894,13 @@ function showContinueButton() {
     document.getElementById('load-autosave-button')?.remove();
     if (game || !readAutosave()) return;
 
-    const button = el('button', 'control-btn autosave-btn', '🔄 Continue Journey');
-    button.id = 'load-autosave-button';
-    button.addEventListener('click', () => {
+    const continueBtn = button('control-btn autosave-btn', '🔄 Continue Journey', () => {
         const record = readAutosave();
         if (record) loadSave(record, true);
     });
-    elements.startButton.parentNode.insertBefore(button, elements.startButton.nextSibling);
+    continueBtn.id = 'load-autosave-button';
+    // Placed above "Begin the Descent": continuing is what a returning player usually wants.
+    elements.startButton.parentNode.insertBefore(continueBtn, elements.startButton);
 }
 
 // Put a saved journey on screen. Nothing here can fail halfway: the save was
@@ -999,7 +922,7 @@ async function loadSave(record, isAutosave) {
     // An autosave with steps in it exists nowhere else, so it still counts as unsaved.
     unsavedProgress = isAutosave && record.game.turns.length > 0;
     autosave();
-    showSaveStatus(isAutosave ? 'Journey continued from autosave' : 'Journey loaded: ' + record.name);
+    toast(isAutosave ? 'Journey continued from autosave' : `Journey loaded: ${record.name}`);
 }
 
 async function deleteSave(record) {
@@ -1008,7 +931,7 @@ async function deleteSave(record) {
 
     storeRemove(record.key);
     showLoadMenu();
-    showSaveStatus('Journey deleted: ' + record.name);
+    toast(`Journey deleted: ${record.name}`);
 }
 
 // ----- Save files (backup, and moving a journey between devices) -----
@@ -1016,8 +939,8 @@ async function deleteSave(record) {
 function downloadSave(record) {
     const { key, ...fileRecord } = record;
     const slug = record.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'journey';
-    downloadFile(JSON.stringify(fileRecord, null, 2), `wutong-save-${slug}-${getDateString()}.json`, 'application/json');
-    showSaveStatus('Save file downloaded: ' + record.name);
+    downloadFile(JSON.stringify(fileRecord, null, 2), `wutong-save-${slug}-${todayString()}.json`, 'application/json');
+    toast(`Save file downloaded: ${record.name}`);
 }
 
 function importSaveFile(file) {
@@ -1052,7 +975,7 @@ function importSaveFile(file) {
         }
 
         showLoadMenu();
-        showSaveStatus('Save file added: ' + record.name);
+        toast(`Save file added: ${record.name}`);
     };
     reader.readAsText(file);
 }
@@ -1062,10 +985,7 @@ function importSaveFile(file) {
 function showLoadMenu() {
     closeLoadMenu();
 
-    const menu = el('div', 'load-menu');
-    menu.id = 'load-menu';
-    const content = el('div', 'load-menu-content');
-    content.appendChild(el('h2', '', 'Saved Journeys'));
+    const { panel } = openOverlay({ id: 'load-menu', title: 'Saved Journeys', onDismiss: closeLoadMenu });
 
     const list = el('div', 'save-list');
     const autosaveRecord = readAutosave();
@@ -1082,65 +1002,52 @@ function showLoadMenu() {
     (storeGet(STORE.unreadable) || []).forEach(name => {
         const item = el('div', 'save-item save-item-unreadable');
         const info = el('div', 'save-info');
-        info.append(el('strong', '', String(name)), el('small', '', 'Older save that could not be converted. The original is still stored in this browser.'));
+        info.append(
+            el('strong', '', String(name)),
+            el('small', '', 'Older save that could not be converted. The original is still stored in this browser.')
+        );
         item.appendChild(info);
         list.appendChild(item);
     });
 
-    content.appendChild(list);
-
     // Load from a downloaded save file
-    const fileInput = el('input');
+    const fileInput = el('input', 'hidden');
     fileInput.type = 'file';
     fileInput.accept = '.json,application/json';
-    fileInput.style.display = 'none';
     fileInput.addEventListener('change', () => importSaveFile(fileInput.files[0]));
 
-    const importBtn = el('button', 'close-menu-btn', '📂 Load from file');
-    importBtn.addEventListener('click', () => fileInput.click());
-
-    const closeBtn = el('button', 'close-menu-btn', 'Close');
-    closeBtn.addEventListener('click', closeLoadMenu);
-
     const footer = el('div', 'dialog-buttons');
-    footer.append(importBtn, closeBtn);
-    content.append(fileInput, footer);
-    content.appendChild(el('p', 'save-hint', 'Saves are kept in this browser only, and browsers can clear them. Use Download to keep a backup file or move a journey to another device.'));
+    footer.append(
+        button('menu-btn', '📂 Load from file', () => fileInput.click()),
+        button('menu-btn', 'Close', closeLoadMenu)
+    );
 
-    menu.appendChild(content);
-    document.body.appendChild(menu);
+    panel.append(
+        list,
+        fileInput,
+        footer,
+        el('p', 'save-hint', 'Saves are kept in this browser only, and browsers can clear them. Use Download to keep a backup file or move a journey to another device.')
+    );
 }
 
 function buildSaveItem(record, isAutosave) {
-    const turns = record.game.turns;
-    const current = turns.length ? turns[turns.length - 1].story : record.game.opening;
-    const dreams = turns.filter(turn => isDreaming(turn.story)).length;
-
+    const journey = record.game;
     const item = el('div', isAutosave ? 'save-item autosave-item' : 'save-item');
 
     const info = el('div', 'save-info');
     info.append(
         el('strong', '', isAutosave ? '🔄 Autosave (Latest)' : record.name),
         el('small', '', formatDate(record.savedAt)),
-        el('small', '', `Location: ${current.metadata.location}`),
-        el('small', '', `Steps: ${turns.length} | Dreams: ${dreams}`)
+        el('small', '', `Location: ${latestStory(journey).metadata.location}`),
+        el('small', '', `Steps: ${journey.turns.length} | Dreams: ${countDreams(journey)}`)
     );
 
     const actions = el('div', 'save-actions');
-
-    const loadBtn = el('button', 'load-btn', 'Load');
-    loadBtn.addEventListener('click', () => loadSave(record, isAutosave));
-
-    const downloadBtn = el('button', 'load-btn', 'Download');
-    downloadBtn.addEventListener('click', () => downloadSave(record));
-
-    actions.append(loadBtn, downloadBtn);
-
-    if (!isAutosave) {
-        const deleteBtn = el('button', 'delete-btn', 'Delete');
-        deleteBtn.addEventListener('click', () => deleteSave(record));
-        actions.appendChild(deleteBtn);
-    }
+    actions.append(
+        button('load-btn', 'Load', () => loadSave(record, isAutosave)),
+        button('load-btn', 'Download', () => downloadSave(record))
+    );
+    if (!isAutosave) actions.appendChild(button('delete-btn', 'Delete', () => deleteSave(record)));
 
     item.append(info, actions);
     return item;
@@ -1148,14 +1055,6 @@ function buildSaveItem(record, isAutosave) {
 
 function closeLoadMenu() {
     document.getElementById('load-menu')?.remove();
-}
-
-function showSaveStatus(message) {
-    elements.saveStatus.textContent = message;
-    elements.saveStatus.classList.add('show');
-    setTimeout(() => {
-        elements.saveStatus.classList.remove('show');
-    }, 3000);
 }
 
 // ===== CONVERTING OLD SAVES =====
@@ -1171,20 +1070,13 @@ function migrateLegacySaves() {
     let storageFailed = false;
 
     const convert = (name, legacy, key) => {
-        const converted = convertLegacySave(legacy);
-        if (!converted) {
+        const journey = convertLegacySave(legacy);
+        if (!journey) {
             unreadable.push(name);
             return;
         }
-        const record = {
-            app: 'wutong-mountain',
-            version: SAVE_VERSION,
-            id: key,
-            name,
-            savedAt: typeof legacy.savedAt === 'string' ? legacy.savedAt : new Date().toISOString(),
-            game: converted
-        };
-        if (!storeSet(key, record)) storageFailed = true;
+        const savedAt = typeof legacy.savedAt === 'string' ? legacy.savedAt : null;
+        if (!storeSet(key, makeSaveRecord(key, name, journey, savedAt))) storageFailed = true;
     };
 
     try {
@@ -1294,9 +1186,39 @@ function convertLegacySave(legacy) {
     return cleanGame({ startTime: legacy.startTime, opening: stories[0], turns });
 }
 
-// Used by the inline onclick handlers in the export menu
-window.exportAsMarkdown = exportAsMarkdown;
-window.exportAsPDF = exportAsPDF;
-window.exportAsText = exportAsText;
-window.exportAsHTML = exportAsHTML;
-window.closeExportMenu = closeExportMenu;
+// ===== VISUAL EFFECTS =====
+
+// Slow drifting mist behind the page. Skipped for visitors whose device
+// asks for reduced motion.
+function createMistParticles() {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
+    for (let i = 0; i < MIST_PARTICLES; i++) {
+        const particle = el('div', 'mist-particle');
+        const size = Math.random() * 60 + 20;
+
+        particle.style.left = `${Math.random() * 100}%`;
+        particle.style.top = `${Math.random() * 100}%`;
+        particle.style.width = `${size}px`;
+        particle.style.height = `${size}px`;
+        particle.style.animationDuration = `${Math.random() * 20 + 30}s`;
+        particle.style.animationDelay = `${Math.random() * 10}s`;
+
+        elements.mistParticles.appendChild(particle);
+    }
+}
+
+// ===== START-UP =====
+
+elements.startButton.addEventListener('click', startGame);
+elements.restartButton.addEventListener('click', restartGame);
+elements.saveButton.addEventListener('click', saveGame);
+elements.loadButton.addEventListener('click', showLoadMenu);
+elements.exportButton.addEventListener('click', showExportMenu);
+elements.journalToggle.addEventListener('click', toggleJournal);
+elements.closeJournal.addEventListener('click', toggleJournal);
+document.addEventListener('keydown', handleKeydown);
+
+createMistParticles();
+migrateLegacySaves();
+showContinueButton();

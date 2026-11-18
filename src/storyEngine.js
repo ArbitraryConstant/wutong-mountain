@@ -1,3 +1,5 @@
+// The storyteller's instructions and the built-in opening scene.
+
 const SYSTEM_PROMPT = `You are the narrative consciousness of WuTong Mountain, a text-based adventure where the player is Nameless - a dream doctor who lost their name to The Ten Thousand Things.
 
 WORLD CONTEXT:
@@ -65,12 +67,7 @@ What will Nameless do?`,
   }
 };
 
-function createInitialStory() {
-  return OPENING_NARRATIVE;
-}
-
 module.exports = {
   SYSTEM_PROMPT,
-  OPENING_NARRATIVE,
-  createInitialStory
+  OPENING_NARRATIVE
 };

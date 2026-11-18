@@ -2,39 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>WuTong Mountain | 梧桐山</title>
-    
-    <!-- Open Graph / Social Media Meta Tags -->
+
+    <meta name="description" content="WuTong Mountain - An AI-powered interactive narrative where you play as Nameless, a dream doctor descending from the mountain to heal the nightmares of a utopian world.">
+    <meta name="keywords" content="interactive fiction, AI narrative, choose your own adventure, philosophy, Daoism, dreams, Shenzhen">
+    <meta name="theme-color" content="#0a0e27">
+    <link rel="canonical" href="https://www.wutongmountain.org/">
+
+    <!-- Icons (browser tab, and the phone home screen) -->
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+    <!-- Link previews on social media and in messaging apps -->
     <meta property="og:title" content="WuTong Mountain | 梧桐山">
     <meta property="og:description" content="The Dream Doctor Descends. A philosophical journey through utopia and nightmare in 2100 Shenzhen.">
-    <meta property="og:image" content="https://www.wutongmountain.org/og-image.png">
-    <meta property="og:image:secure_url" content="https://www.wutongmountain.org/og-image.png">
-    <meta property="og:image:type" content="image/png">
-    <meta property="og:image:width" content="1792">
-    <meta property="og:image:height" content="1024">
-    <meta property="og:url" content="https://www.wutongmountain.org">
+    <meta property="og:image" content="https://www.wutongmountain.org/og-image.jpg">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="A cloaked figure with a staff looks out from a cave over misty mountains toward a glittering city.">
+    <meta property="og:url" content="https://www.wutongmountain.org/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="WuTong Mountain">
-    
-    <!-- Twitter Card Meta Tags -->
+
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="WuTong Mountain | 梧桐山">
     <meta name="twitter:description" content="The Dream Doctor Descends. A philosophical journey through utopia and nightmare in 2100 Shenzhen.">
-    <meta name="twitter:image" content="https://www.wutongmountain.org/og-image.png">
-    
-    <!-- General Meta Tags -->
-    <meta name="description" content="WuTong Mountain - An AI-powered interactive narrative where you play as Nameless, a dream doctor descending from the mountain to heal the nightmares of a utopian world.">
-    <meta name="keywords" content="interactive fiction, AI narrative, choose your own adventure, philosophy, Daoism, dreams, Shenzhen">
-    
+    <meta name="twitter:image" content="https://www.wutongmountain.org/og-image.jpg">
+
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Animated background particles -->
-    <div id="mist-particles"></div>
-    
+    <!-- Drifting mist behind the page -->
+    <div id="mist-particles" aria-hidden="true"></div>
+
     <div class="layout">
-        <!-- Main Content Area -->
         <div class="main-content">
             <div class="container">
                 <header>
@@ -42,27 +45,26 @@
                     <p class="subtitle">梧桐山 | The Dream Doctor Descends</p>
                 </header>
 
-                <div class="controls">
-                    <button id="save-button" class="control-btn hidden">💾 Save</button>
-                    <button id="load-button" class="control-btn hidden">📖 Load</button>
-                    <button id="export-button" class="control-btn hidden">📜 Export</button>
-                    <button id="journal-toggle" class="control-btn hidden">📔 Journal</button>
-                </div>
+                <nav class="controls" aria-label="Game controls">
+                    <button type="button" id="save-button" class="control-btn hidden">💾 Save</button>
+                    <button type="button" id="load-button" class="control-btn">📖 Load</button>
+                    <button type="button" id="export-button" class="control-btn hidden">📜 Export</button>
+                    <button type="button" id="journal-toggle" class="control-btn hidden" aria-controls="dream-journal" aria-expanded="false">📔 Journal</button>
+                </nav>
 
-                <div id="save-status" class="save-status"></div>
-
-                <!-- Hero Image Section (only visible before starting) -->
+                <!-- Shown only before a journey begins -->
                 <div id="hero-section" class="hero-section">
-                    <img src="og-image.png" alt="WuTong Mountain" class="hero-image">
+                    <img src="hero.jpg" width="1280" height="853" class="hero-image"
+                         alt="A cloaked figure with a staff looks out from a cave over misty mountains toward a glittering city.">
                 </div>
 
                 <main id="story-container">
-                    <div id="loading" class="hidden">
+                    <div id="loading" class="hidden" role="status">
                         <div class="mist-loader"></div>
                         <p>The mist shifts...</p>
                     </div>
 
-                    <div id="narrative-display">
+                    <div id="narrative-display" aria-live="polite">
                         <div id="location-info" class="metadata"></div>
                         <div id="narrative-text"></div>
                     </div>
@@ -71,8 +73,8 @@
                         <div class="choices-grid"></div>
                     </div>
 
-                    <button id="start-button" class="start-btn">Begin the Descent</button>
-                    <button id="restart-button" class="restart-btn hidden">Return to the Mountain</button>
+                    <button type="button" id="start-button" class="start-btn">Begin the Descent</button>
+                    <button type="button" id="restart-button" class="restart-btn hidden">Return to the Mountain</button>
                 </main>
 
                 <footer>
@@ -81,13 +83,13 @@
             </div>
         </div>
 
-        <!-- Dream Journal Sidebar -->
-        <aside id="dream-journal" class="dream-journal hidden">
+        <!-- Dream Journal sidebar -->
+        <aside id="dream-journal" class="dream-journal hidden" aria-label="Dream Journal">
             <div class="journal-header">
                 <h3>Dream Journal</h3>
-                <button class="close-journal" id="close-journal">✕</button>
+                <button type="button" class="close-journal" id="close-journal" aria-label="Close journal">✕</button>
             </div>
-            
+
             <div class="journal-stats">
                 <div class="stat-item">
                     <span class="stat-label">Steps</span>
@@ -98,16 +100,14 @@
                     <span class="stat-value" id="dream-count">0</span>
                 </div>
                 <div class="stat-item">
-                    <span class="stat-label">Time</span>
-                    <span class="stat-value" id="time-elapsed">0m</span>
+                    <span class="stat-label">Begun</span>
+                    <span class="stat-value stat-value-small" id="time-elapsed">-</span>
                 </div>
             </div>
 
             <div class="journal-content">
                 <h4>Your Path</h4>
-                <div class="journal-path" id="journal-path">
-                    <p class="journal-empty">Your path will be recorded here...</p>
-                </div>
+                <div class="journal-path" id="journal-path"></div>
             </div>
         </aside>
     </div>

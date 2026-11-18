@@ -1,3 +1,23 @@
+/* WuTong Mountain - styles */
+
+/* ===== Colours and shared values ===== */
+
+:root {
+    --gold: #ffd700;
+    --gold-rgb: 255, 215, 0;
+    --green-rgb: 100, 200, 100;
+    --red-rgb: 200, 50, 50;
+    --text: #e8e8e8;
+    --text-soft: #b8b8b8;
+    --text-dim: #888;
+    --night: #0a0e27;
+    --radius: 4px;
+
+    --sky-waking: linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
+    --sky-dreaming: linear-gradient(to bottom, #0a1a3e 0%, #1e3a5f 50%, #2a4a7f 100%);
+    --sky-nightmare: linear-gradient(to bottom, #1a0a2e 0%, #2d1b3d 50%, #1a0a2e 100%);
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -5,24 +25,78 @@
 }
 
 body {
-    font-family: 'Georgia', 'Times New Roman', serif;
-    background: linear-gradient(to bottom, #0a0e27 0%, #1a1a2e 50%, #16213e 100%);
-    color: #e8e8e8;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: var(--text);
     min-height: 100vh;
     line-height: 1.8;
     position: relative;
     overflow-x: hidden;
-    transition: background 3s ease;
 }
 
-/* Mist Particles Background */
+.hidden {
+    display: none !important;
+}
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* A clear outline for people moving through the page with the keyboard */
+:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+}
+
+/* ===== Background: sky and mist ===== */
+
+/* Three skies are stacked behind the page: waking at the bottom, with the
+   dreaming and nightmare skies fading in over it as the story changes. */
+html::before,
+body::before,
+body::after,
 #mist-particles {
+    content: '';
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     pointer-events: none;
+}
+
+html {
+    background: var(--night);
+}
+
+html::before {
+    z-index: -2;
+    background: var(--sky-waking);
+}
+
+body::before,
+body::after {
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 3s ease;
+}
+
+body::before {
+    background: var(--sky-dreaming);
+}
+
+body::after {
+    background: var(--sky-nightmare);
+}
+
+body.dreaming::before,
+body.nightmare::after {
+    opacity: 1;
+}
+
+#mist-particles {
     z-index: 0;
     overflow: hidden;
 }
@@ -46,7 +120,8 @@ body {
     }
 }
 
-/* Layout */
+/* ===== Page layout ===== */
+
 .layout {
     display: flex;
     min-height: 100vh;
@@ -56,7 +131,7 @@ body {
 
 .main-content {
     flex: 1;
-    transition: margin-right 0.3s ease;
+    min-width: 0;
 }
 
 .container {
@@ -77,8 +152,8 @@ h1 {
     font-weight: 300;
     letter-spacing: 0.3rem;
     margin-bottom: 0.5rem;
-    color: #ffd700;
-    text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+    color: var(--gold);
+    text-shadow: 0 0 20px rgba(var(--gold-rgb), 0.3);
 }
 
 .glow-text {
@@ -87,21 +162,32 @@ h1 {
 
 @keyframes glow {
     0%, 100% {
-        text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        text-shadow: 0 0 20px rgba(var(--gold-rgb), 0.3);
     }
     50% {
-        text-shadow: 0 0 30px rgba(255, 215, 0, 0.6), 0 0 40px rgba(255, 215, 0, 0.4);
+        text-shadow: 0 0 30px rgba(var(--gold-rgb), 0.6), 0 0 40px rgba(var(--gold-rgb), 0.4);
     }
 }
 
 .subtitle {
     font-size: 0.9rem;
     letter-spacing: 0.2rem;
-    color: #b8b8b8;
+    color: var(--text-soft);
     font-style: italic;
 }
 
-/* Controls */
+footer {
+    text-align: center;
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid rgba(232, 232, 232, 0.2);
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+/* ===== Control buttons (Save, Load, Export, Journal) ===== */
+
 .controls {
     display: flex;
     justify-content: center;
@@ -112,53 +198,79 @@ h1 {
 
 .control-btn {
     padding: 0.7rem 1.3rem;
-    background: rgba(255, 215, 0, 0.15);
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    color: #e8e8e8;
-    cursor: pointer;
+    background: rgba(var(--gold-rgb), 0.15);
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    color: var(--text);
     transition: all 0.3s ease;
-    font-family: inherit;
     font-size: 0.85rem;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
-.control-btn:hover {
-    background: rgba(255, 215, 0, 0.25);
-    border-color: rgba(255, 215, 0, 0.5);
+.control-btn:hover:not(:disabled) {
+    background: rgba(var(--gold-rgb), 0.25);
+    border-color: rgba(var(--gold-rgb), 0.5);
     transform: translateY(-2px);
 }
 
-.save-status {
-    text-align: center;
-    padding: 0.8rem;
-    background: rgba(255, 215, 0, 0.2);
-    border: 1px solid rgba(255, 215, 0, 0.4);
-    border-radius: 4px;
-    margin-bottom: 1rem;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    color: #ffd700;
+/* "Continue Journey" on the opening screen */
+.control-btn.autosave-btn {
+    display: block;
+    margin: 2rem auto 0;
+    padding: 1rem 2rem;
+    font-size: 1.1rem;
+    letter-spacing: 0.1rem;
+    background: rgba(var(--green-rgb), 0.2);
+    border-color: rgba(var(--green-rgb), 0.5);
+    color: #90ee90;
+    animation: pulse 2s ease-in-out infinite;
 }
 
-.save-status.show {
-    opacity: 1;
+.control-btn.autosave-btn:hover:not(:disabled) {
+    background: rgba(var(--green-rgb), 0.3);
+    border-color: rgba(var(--green-rgb), 0.7);
 }
 
-/* Story Container */
+@keyframes pulse {
+    0%, 100% {
+        box-shadow: 0 0 10px rgba(var(--green-rgb), 0.3);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(var(--green-rgb), 0.6);
+    }
+}
+
+/* ===== Opening picture ===== */
+
+.hero-section {
+    margin: 2rem 0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.hero-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: min(55vh, 560px);
+    object-fit: cover;
+}
+
+/* ===== Story ===== */
+
 #story-container {
-    min-height: 400px;
+    min-height: 200px;
     margin-bottom: 2rem;
 }
 
 .metadata {
     font-size: 0.85rem;
-    color: #888;
+    color: var(--text-dim);
     margin-bottom: 1.5rem;
     padding: 0.8rem;
-    border-left: 3px solid rgba(255, 215, 0, 0.4);
-    background: rgba(255, 215, 0, 0.05);
-    backdrop-filter: blur(5px);
-    border-radius: 0 4px 4px 0;
+    border-left: 3px solid rgba(var(--gold-rgb), 0.4);
+    background: rgba(var(--gold-rgb), 0.05);
+    border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 #narrative-text {
@@ -166,10 +278,15 @@ h1 {
     margin-bottom: 2rem;
     padding: 1.5rem;
     background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(10px);
-    border-radius: 4px;
+    border-radius: var(--radius);
     white-space: pre-line;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Nothing to show before a journey begins */
+.metadata:empty,
+#narrative-text:empty {
+    display: none;
 }
 
 .choices-grid {
@@ -181,15 +298,14 @@ h1 {
 
 .choice-btn {
     padding: 1.2rem;
-    background: rgba(255, 215, 0, 0.1);
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    color: #e8e8e8;
-    cursor: pointer;
+    background: rgba(var(--gold-rgb), 0.1);
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    color: var(--text);
     transition: all 0.3s ease;
-    font-family: inherit;
     font-size: 1rem;
+    line-height: 1.5;
     text-align: left;
-    border-radius: 4px;
+    border-radius: var(--radius);
     position: relative;
     overflow: hidden;
     display: flex;
@@ -203,14 +319,15 @@ h1 {
     justify-content: center;
     width: 24px;
     height: 24px;
-    background: rgba(255, 215, 0, 0.2);
+    background: rgba(var(--gold-rgb), 0.2);
     border-radius: 50%;
     font-size: 0.85rem;
     font-weight: bold;
-    color: #ffd700;
+    color: var(--gold);
     flex-shrink: 0;
 }
 
+/* A sheen that sweeps across a choice on hover */
 .choice-btn::before {
     content: '';
     position: absolute;
@@ -218,7 +335,7 @@ h1 {
     left: -100%;
     width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.2), transparent);
+    background: linear-gradient(90deg, transparent, rgba(var(--gold-rgb), 0.2), transparent);
     transition: left 0.5s ease;
 }
 
@@ -227,39 +344,46 @@ h1 {
 }
 
 .choice-btn:hover {
-    background: rgba(255, 215, 0, 0.2);
-    border-color: rgba(255, 215, 0, 0.5);
+    background: rgba(var(--gold-rgb), 0.2);
+    border-color: rgba(var(--gold-rgb), 0.5);
     transform: translateX(5px);
-    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.2);
+    box-shadow: 0 4px 15px rgba(var(--gold-rgb), 0.2);
 }
 
 .choice-btn:active {
     transform: translateX(5px) scale(0.98);
 }
 
-.start-btn, .restart-btn {
+.start-btn,
+.restart-btn {
     display: block;
     margin: 2rem auto;
     padding: 1rem 2rem;
-    background: rgba(255, 215, 0, 0.2);
-    border: 2px solid rgba(255, 215, 0, 0.5);
-    color: #ffd700;
+    background: rgba(var(--gold-rgb), 0.2);
+    border: 2px solid rgba(var(--gold-rgb), 0.5);
+    color: var(--gold);
     font-size: 1.1rem;
-    cursor: pointer;
     transition: all 0.3s ease;
-    font-family: inherit;
     letter-spacing: 0.1rem;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
-.start-btn:hover, .restart-btn:hover {
-    background: rgba(255, 215, 0, 0.3);
+.start-btn:hover:not(:disabled),
+.restart-btn:hover:not(:disabled) {
+    background: rgba(var(--gold-rgb), 0.3);
     transform: scale(1.05);
-    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
+    box-shadow: 0 4px 20px rgba(var(--gold-rgb), 0.3);
 }
 
-.hidden {
-    display: none !important;
+/* A quieter button once the journey is under way */
+.restart-btn {
+    margin-top: 3rem;
+    padding: 0.7rem 1.4rem;
+    font-size: 0.9rem;
+    background: transparent;
+    border-width: 1px;
+    border-color: rgba(var(--gold-rgb), 0.3);
+    color: var(--text-soft);
 }
 
 #loading {
@@ -271,77 +395,69 @@ h1 {
     width: 60px;
     height: 60px;
     margin: 0 auto 1rem;
-    border: 3px solid rgba(255, 215, 0, 0.1);
-    border-top: 3px solid rgba(255, 215, 0, 0.6);
+    border: 3px solid rgba(var(--gold-rgb), 0.1);
+    border-top-color: rgba(var(--gold-rgb), 0.6);
     border-radius: 50%;
     animation: spin 1.5s linear infinite;
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    to { transform: rotate(360deg); }
 }
 
-/* Dream Journal - Right Sidebar */
+/* ===== Dream Journal sidebar ===== */
+
 .dream-journal {
     position: fixed;
     right: 0;
     top: 0;
     width: 350px;
+    max-width: 100%;
     height: 100vh;
-    background: rgba(10, 14, 39, 0.98);
-    backdrop-filter: blur(10px);
-    border-left: 2px solid rgba(255, 215, 0, 0.3);
+    height: 100dvh;
+    background: var(--night);
+    border-left: 2px solid rgba(var(--gold-rgb), 0.3);
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
     z-index: 100;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transform: translateX(0);
-    transition: transform 0.3s ease;
-}
-
-.dream-journal.hidden {
-    transform: translateX(100%);
 }
 
 .journal-header {
     padding: 1.5rem;
-    border-bottom: 2px solid rgba(255, 215, 0, 0.3);
+    border-bottom: 2px solid rgba(var(--gold-rgb), 0.3);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: rgba(255, 215, 0, 0.05);
+    background: rgba(var(--gold-rgb), 0.05);
 }
 
 .journal-header h3 {
-    color: #ffd700;
+    color: var(--gold);
     font-size: 1.2rem;
     font-weight: 300;
     letter-spacing: 0.15rem;
-    text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    text-shadow: 0 0 10px rgba(var(--gold-rgb), 0.3);
 }
 
 .close-journal {
-    background: rgba(255, 215, 0, 0.2);
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    color: #ffd700;
+    background: rgba(var(--gold-rgb), 0.2);
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    color: var(--gold);
     font-size: 1.2rem;
-    cursor: pointer;
     transition: all 0.3s ease;
-    padding: 0.3rem 0.6rem;
     width: 35px;
     height: 35px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--radius);
 }
 
 .close-journal:hover {
-    background: rgba(255, 215, 0, 0.3);
+    background: rgba(var(--gold-rgb), 0.3);
     transform: scale(1.1);
-    box-shadow: 0 2px 10px rgba(255, 215, 0, 0.3);
 }
 
 .journal-stats {
@@ -349,8 +465,8 @@ h1 {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 1rem;
-    background: rgba(255, 215, 0, 0.03);
-    border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+    background: rgba(var(--gold-rgb), 0.03);
+    border-bottom: 1px solid rgba(var(--gold-rgb), 0.2);
 }
 
 .stat-item {
@@ -362,7 +478,7 @@ h1 {
 
 .stat-label {
     font-size: 0.75rem;
-    color: #888;
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.1rem;
     margin-bottom: 0.3rem;
@@ -370,25 +486,32 @@ h1 {
 
 .stat-value {
     font-size: 1.5rem;
-    color: #ffd700;
+    line-height: 2.4rem;
+    color: var(--gold);
     font-weight: bold;
-    text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    text-shadow: 0 0 10px rgba(var(--gold-rgb), 0.3);
+}
+
+.stat-value-small {
+    font-size: 1rem;
 }
 
 .journal-content {
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--gold-rgb), 0.3) rgba(255, 255, 255, 0.05);
 }
 
 .journal-content h4 {
-    color: #ffd700;
+    color: var(--gold);
     font-size: 0.9rem;
     font-weight: 300;
     letter-spacing: 0.15rem;
     margin-bottom: 1rem;
     text-transform: uppercase;
-    border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+    border-bottom: 1px solid rgba(var(--gold-rgb), 0.2);
     padding-bottom: 0.5rem;
 }
 
@@ -398,78 +521,61 @@ h1 {
     gap: 1rem;
 }
 
-.journal-empty {
-    color: #666;
-    font-style: italic;
-    text-align: center;
-    padding: 2rem 1rem;
-    font-size: 0.9rem;
-}
-
+/* Each entry is a button: press it to read that passage again */
 .journal-entry {
+    display: block;
+    width: 100%;
     padding: 1rem;
+    text-align: left;
+    color: inherit;
+    font-size: inherit;
     background: rgba(255, 255, 255, 0.02);
-    border-left: 3px solid rgba(255, 215, 0, 0.3);
-    border-radius: 0 4px 4px 0;
+    border: none;
+    border-left: 3px solid rgba(var(--gold-rgb), 0.3);
+    border-radius: 0 var(--radius) var(--radius) 0;
     transition: all 0.3s ease;
 }
 
 .journal-entry:hover {
     background: rgba(255, 255, 255, 0.05);
-    border-left-color: rgba(255, 215, 0, 0.6);
+    border-left-color: rgba(var(--gold-rgb), 0.6);
     transform: translateX(5px);
 }
 
 .journal-entry-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
+    align-items: baseline;
+    gap: 0.8rem;
 }
 
 .journal-step {
-    color: #ffd700;
+    color: var(--gold);
     font-weight: bold;
     font-size: 0.85rem;
+    white-space: nowrap;
 }
 
 .journal-location {
-    color: #888;
+    color: var(--text-dim);
     font-size: 0.75rem;
+    text-align: right;
 }
 
 .journal-choice {
-    color: #b8b8b8;
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--text-soft);
     font-size: 0.85rem;
     font-style: italic;
     line-height: 1.4;
 }
 
-/* Scrollbar styling for journal */
-.journal-content::-webkit-scrollbar {
-    width: 8px;
-}
+/* ===== Overlays: menus and dialogs ===== */
 
-.journal-content::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.journal-content::-webkit-scrollbar-thumb {
-    background: rgba(255, 215, 0, 0.3);
-    border-radius: 4px;
-}
-
-.journal-content::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 215, 0, 0.5);
-}
-
-/* Load Menu Modal */
-.load-menu {
+.overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     background: rgba(0, 0, 0, 0.85);
     display: flex;
     justify-content: center;
@@ -478,325 +584,35 @@ h1 {
     animation: fadeIn 0.3s ease;
 }
 
+.dialog-overlay {
+    z-index: 1100;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
 }
 
-.load-menu-content {
+.panel {
     background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 100%);
     padding: 2rem;
     border-radius: 8px;
-    border: 2px solid rgba(255, 215, 0, 0.3);
+    border: 2px solid rgba(var(--gold-rgb), 0.3);
     max-width: 600px;
     width: 90%;
-    max-height: 80vh;
+    max-height: 85vh;
+    max-height: 85dvh;
     overflow-y: auto;
 }
 
-.load-menu-content h2 {
-    color: #ffd700;
+.panel h2 {
+    color: var(--gold);
     margin-bottom: 1.5rem;
     text-align: center;
+    font-size: 1.4rem;
     font-weight: 300;
-    letter-spacing: 0.2rem;
-}
-
-.save-list {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.save-item {
-    background: rgba(255, 215, 0, 0.05);
-    border: 1px solid rgba(255, 215, 0, 0.2);
-    padding: 1rem;
-    border-radius: 4px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: background 0.3s ease;
-}
-
-.save-item:hover {
-    background: rgba(255, 215, 0, 0.1);
-}
-
-.save-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-}
-
-.save-info strong {
-    color: #ffd700;
-    font-size: 1.1rem;
-}
-
-.save-info small {
-    color: #888;
-    font-size: 0.85rem;
-}
-
-.save-actions {
-    display: flex;
-    gap: 0.5rem;
-}
-
-.load-btn, .delete-btn {
-    padding: 0.6rem 1.2rem;
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-family: inherit;
-    font-size: 0.9rem;
-}
-
-.load-btn {
-    background: rgba(255, 215, 0, 0.2);
-    color: #ffd700;
-}
-
-.load-btn:hover {
-    background: rgba(255, 215, 0, 0.3);
-    transform: scale(1.05);
-}
-
-.delete-btn {
-    background: rgba(200, 50, 50, 0.2);
-    color: #ff6b6b;
-    border-color: rgba(200, 50, 50, 0.3);
-}
-
-.delete-btn:hover {
-    background: rgba(200, 50, 50, 0.3);
-    transform: scale(1.05);
-}
-
-.close-menu-btn {
-    display: block;
-    width: 100%;
-    padding: 1rem;
-    background: rgba(255, 215, 0, 0.15);
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    color: #e8e8e8;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    font-family: inherit;
-    font-size: 1rem;
-    border-radius: 4px;
-}
-
-.close-menu-btn:hover {
-    background: rgba(255, 215, 0, 0.25);
-}
-
-/* Export Format Selection */
-.export-format-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-.export-format-btn {
-    background: rgba(255, 215, 0, 0.05);
-    border: 2px solid rgba(255, 215, 0, 0.3);
-    padding: 1.5rem;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
-    font-family: inherit;
-}
-
-.export-format-btn:hover {
-    background: rgba(255, 215, 0, 0.15);
-    border-color: rgba(255, 215, 0, 0.5);
-    transform: translateY(-4px);
-    box-shadow: 0 6px 20px rgba(255, 215, 0, 0.2);
-}
-
-.format-icon {
-    font-size: 2.5rem;
-}
-
-.format-name {
-    color: #ffd700;
-    font-size: 1.1rem;
-    font-weight: bold;
-}
-
-.format-desc {
-    color: #888;
-    font-size: 0.85rem;
-    text-align: center;
-}
-
-footer {
-    text-align: center;
-    margin-top: 4rem;
-    padding-top: 2rem;
-    border-top: 1px solid rgba(232, 232, 232, 0.2);
-    color: #666;
-    font-size: 0.85rem;
-    font-style: italic;
-}
-
-/* Autosave Indicator */
-.autosave-indicator {
-    position: fixed;
-    bottom: 2rem;
-    right: 2rem;
-    background: rgba(255, 215, 0, 0.9);
-    color: #0a0e27;
-    padding: 0.8rem 1.5rem;
-    border-radius: 4px;
-    font-size: 0.9rem;
-    font-weight: bold;
-    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
-    z-index: 1000;
-    animation: slideIn 0.3s ease;
-}
-
-.autosave-indicator.fade-out {
-    opacity: 0;
-    transition: opacity 0.5s ease;
-}
-
-@keyframes slideIn {
-    from {
-        transform: translateX(100px);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-/* Continue Journey Button */
-.autosave-btn {
-    background: rgba(100, 200, 100, 0.2) !important;
-    border-color: rgba(100, 200, 100, 0.5) !important;
-    color: #90ee90 !important;
-    animation: pulse 2s ease-in-out infinite;
-}
-
-.autosave-btn:hover {
-    background: rgba(100, 200, 100, 0.3) !important;
-    border-color: rgba(100, 200, 100, 0.7) !important;
-}
-
-@keyframes pulse {
-    0%, 100% {
-        box-shadow: 0 0 10px rgba(100, 200, 100, 0.3);
-    }
-    50% {
-        box-shadow: 0 0 20px rgba(100, 200, 100, 0.6);
-    }
-}
-
-/* Autosave item in load menu */
-.autosave-item {
-    background: rgba(100, 200, 100, 0.08) !important;
-    border-color: rgba(100, 200, 100, 0.3) !important;
-}
-
-.autosave-item:hover {
-    background: rgba(100, 200, 100, 0.12) !important;
-}
-
-/* Hero Image Section */
-.hero-section {
-    margin: 2rem 0;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-    max-width: 100%;
-}
-
-.hero-image {
-    width: 100%;
-    height: auto;
-    max-height: 70vh;
-    object-fit: contain;
-    display: block;
-    border-radius: 8px;
-}
-
-.hero-section.hidden {
-    display: none;
-}
-
-/* Mobile Responsive */
-@media (max-width: 1024px) {
-    .dream-journal {
-        width: 100%;
-        max-width: 400px;
-    }
-}
-
-@media (max-width: 600px) {
-    .container {
-        padding: 1rem;
-    }
-    
-    h1 {
-        font-size: 1.8rem;
-    }
-    
-    #narrative-text {
-        font-size: 1rem;
-        padding: 1rem;
-    }
-    
-    .controls {
-        gap: 0.5rem;
-    }
-    
-    .control-btn {
-        padding: 0.6rem 1rem;
-        font-size: 0.8rem;
-    }
-
-    .dream-journal {
-        width: 100%;
-        max-width: 100%;
-    }
-
-    .journal-stats {
-        padding: 1rem;
-    }
-    
-    .save-item {
-        flex-direction: column;
-        gap: 1rem;
-        align-items: flex-start;
-    }
-    
-    .save-actions {
-        width: 100%;
-        justify-content: stretch;
-    }
-    
-    .load-btn, .delete-btn {
-        flex: 1;
-    }
-    
-    .export-format-grid {
-        grid-template-columns: 1fr;
-    }
-}
-/* Dialogs and save menu additions */
-.dialog-overlay {
-    z-index: 1100;
+    letter-spacing: 0.15rem;
+    line-height: 1.4;
 }
 
 .dialog-content {
@@ -805,7 +621,7 @@ footer {
 
 .dialog-message {
     text-align: center;
-    color: #b8b8b8;
+    color: var(--text-soft);
     margin-bottom: 1.5rem;
     line-height: 1.6;
 }
@@ -813,13 +629,12 @@ footer {
 .dialog-input {
     display: block;
     width: 100%;
-    box-sizing: border-box;
     padding: 0.8rem;
     margin-bottom: 1.5rem;
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 215, 0, 0.3);
-    border-radius: 4px;
-    color: #e8e8e8;
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    border-radius: var(--radius);
+    color: var(--text);
     font-family: inherit;
     font-size: 16px; /* 16px stops iPhone Safari zooming in on focus */
 }
@@ -829,33 +644,307 @@ footer {
     gap: 0.8rem;
 }
 
-.dialog-buttons .close-menu-btn {
+.menu-btn {
+    display: block;
     flex: 1;
+    width: 100%;
+    padding: 1rem;
+    background: rgba(var(--gold-rgb), 0.15);
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    color: var(--text);
+    transition: all 0.3s ease;
+    font-size: 1rem;
+    border-radius: var(--radius);
+}
+
+.menu-btn:hover {
+    background: rgba(var(--gold-rgb), 0.25);
 }
 
 .dialog-primary {
-    background: rgba(255, 215, 0, 0.3);
-    color: #ffd700;
+    background: rgba(var(--gold-rgb), 0.3);
+    color: var(--gold);
 }
 
-.save-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
+/* Re-reading a passage from the journal */
+.dialog-content:has(.passage) {
+    max-width: 640px;
+}
+
+.passage {
+    margin-bottom: 1.5rem;
+}
+
+.passage-choice {
+    margin-bottom: 1rem;
+    padding: 0.8rem 1rem;
+    background: rgba(var(--gold-rgb), 0.05);
+    border-left: 2px solid rgba(var(--gold-rgb), 0.3);
+    color: var(--text-soft);
+    font-style: italic;
+}
+
+.passage-text {
+    white-space: pre-line;
+}
+
+/* ===== Saved journeys ===== */
+
+.save-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.save-item {
+    background: rgba(var(--gold-rgb), 0.05);
+    border: 1px solid rgba(var(--gold-rgb), 0.2);
+    padding: 1rem;
+    border-radius: var(--radius);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    transition: background 0.3s ease;
+}
+
+.save-item:hover {
+    background: rgba(var(--gold-rgb), 0.1);
+}
+
+.save-item.autosave-item {
+    background: rgba(var(--green-rgb), 0.08);
+    border-color: rgba(var(--green-rgb), 0.3);
+}
+
+.save-item.autosave-item:hover {
+    background: rgba(var(--green-rgb), 0.12);
 }
 
 .save-item-unreadable {
     opacity: 0.6;
 }
 
+.save-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.save-info strong {
+    color: var(--gold);
+    font-size: 1.1rem;
+    overflow-wrap: anywhere;
+}
+
+.save-info small {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+.save-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.5rem;
+}
+
+.load-btn,
+.delete-btn {
+    padding: 0.6rem 0.9rem;
+    border: 1px solid rgba(var(--gold-rgb), 0.3);
+    border-radius: var(--radius);
+    transition: all 0.3s ease;
+    font-size: 0.9rem;
+}
+
+.load-btn {
+    background: rgba(var(--gold-rgb), 0.2);
+    color: var(--gold);
+}
+
+.load-btn:hover {
+    background: rgba(var(--gold-rgb), 0.3);
+}
+
+.delete-btn {
+    background: rgba(var(--red-rgb), 0.2);
+    color: #ff6b6b;
+    border-color: rgba(var(--red-rgb), 0.3);
+}
+
+.delete-btn:hover {
+    background: rgba(var(--red-rgb), 0.3);
+}
+
 .save-hint {
     margin-top: 1rem;
     text-align: center;
-    color: #888;
+    color: var(--text-dim);
     font-size: 0.8rem;
     line-height: 1.5;
 }
 
-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+/* ===== Export menu ===== */
+
+.export-format-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.export-format-btn {
+    background: rgba(var(--gold-rgb), 0.05);
+    border: 2px solid rgba(var(--gold-rgb), 0.3);
+    padding: 1.5rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.export-format-btn:hover {
+    background: rgba(var(--gold-rgb), 0.15);
+    border-color: rgba(var(--gold-rgb), 0.5);
+    transform: translateY(-4px);
+    box-shadow: 0 6px 20px rgba(var(--gold-rgb), 0.2);
+}
+
+.format-icon {
+    font-size: 2.5rem;
+}
+
+.format-name {
+    color: var(--gold);
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+.format-desc {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    text-align: center;
+}
+
+/* ===== Toast: brief notes such as "Autosaved" ===== */
+
+.toast {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    width: fit-content;
+    max-width: calc(100% - 2rem);
+    margin: 0 auto;
+    transform: translateY(1rem);
+    padding: 0.6rem 1.2rem;
+    background: rgba(10, 14, 39, 0.95);
+    border: 1px solid rgba(var(--gold-rgb), 0.5);
+    color: var(--gold);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    text-align: center;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    z-index: 1200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* On wide screens, tuck it into the corner, clear of the choices */
+@media (min-width: 900px) {
+    .toast {
+        left: auto;
+        right: 2rem;
+        margin: 0;
+    }
+}
+
+/* ===== Small screens ===== */
+
+@media (max-width: 600px) {
+    .container {
+        padding: 1rem;
+    }
+
+    header {
+        padding: 1rem 0;
+    }
+
+    h1 {
+        font-size: 1.8rem;
+        letter-spacing: 0.2rem;
+    }
+
+    #narrative-text {
+        font-size: 1rem;
+        padding: 1rem;
+    }
+
+    .controls {
+        gap: 0.5rem;
+    }
+
+    .control-btn {
+        padding: 0.55rem 0.7rem;
+        font-size: 0.8rem;
+    }
+
+    .dream-journal {
+        width: 100%;
+        border-left: none;
+    }
+
+    .journal-stats {
+        padding: 1rem;
+    }
+
+    .panel {
+        padding: 1.2rem;
+        width: 94%;
+    }
+
+    .save-item {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .load-btn,
+    .delete-btn {
+        flex: 1;
+    }
+
+    .export-format-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .export-format-btn {
+        padding: 1rem;
+    }
+}
+
+/* ===== Reduced motion ===== */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+
+    /* Keep the waiting spinner turning, so the page never looks stuck */
+    .mist-loader {
+        animation: spin 1.5s linear infinite !important;
+    }
 }
